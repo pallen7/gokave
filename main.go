@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/binary"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -72,14 +73,18 @@ func handlePost(mapFile *os.File, dataFile *os.File, key string, httpRequest *ht
 		log.Fatal(err)
 	}
 
-	// Write the 'value' to the data file
-	bytesWritten, err := dataFile.Write([]byte(value))
+	valueToWrite := []byte(value)
+	// Read more about the below.. nabbed straight from stackoverflow
+	// Length of value as a uint converted to binary
+	sizeAndValue := make([]byte, 4)
+	binary.LittleEndian.PutUint32(sizeAndValue, uint32(len(valueToWrite)))
 
-	if err != nil {
+	// Write the bytes written and 'value' to the data file.
+	if _, err = dataFile.Write(append(sizeAndValue, valueToWrite...)); err != nil {
 		log.Fatal(err)
 	}
 
-	keyMap := key + "!" + strconv.FormatInt(fileStat.Size(), 10) + "!" + strconv.Itoa(bytesWritten) + "\n"
+	keyMap := key + "!" + strconv.FormatInt(fileStat.Size(), 10) + "\n"
 	fmt.Println(keyMap)
 
 	// for each key we want to hold start position and length
@@ -107,12 +112,6 @@ func handleGet(mapFile *os.File, dataFile *os.File, key string, responseWriter h
 			if err != nil {
 				log.Fatal(err)
 			}
-
-			length, err = strconv.Atoi(fileKey[2])
-
-			if err != nil {
-				log.Fatal(err)
-			}
 		}
 	}
 
@@ -120,10 +119,13 @@ func handleGet(mapFile *os.File, dataFile *os.File, key string, responseWriter h
 		log.Fatal(err)
 	}
 
-	bytes := make([]byte, length)
-	_, err := dataFile.ReadAt(bytes, location)
+	lengthToReadBytes := make([]byte, 4)
+	if _, err := dataFile.ReadAt(lengthToReadBytes, location); err != nil {
+		log.Fatal(err)
+	}
 
-	if err != nil {
+	bytes := make([]byte, binary.LittleEndian.Uint32(lengthToReadBytes))
+	if _, err := dataFile.ReadAt(bytes, location+4); err != nil {
 		log.Fatal(err)
 	}
 

@@ -1,4 +1,4 @@
 #!/bin/bash
-cat /tmp/data.txt
+cat -v /tmp/data.txt
 echo
-cat /tmp/map.txt
+cat -v /tmp/map.txt
