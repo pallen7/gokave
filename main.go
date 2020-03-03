@@ -1,64 +1,87 @@
 package main
 
 import (
-	"bufio"
-	"encoding/binary"
 	"fmt"
+	"go_play/store"
 	"io/ioutil"
 	"log"
 	"net/http"
-	"os"
-	"strconv"
-	"strings"
 )
+
+type requestHandler struct {
+	kvStore *store.Kvstore
+}
 
 func main() {
 
+	// TODO:
+	// 1) Split into separate packages
+	//      Store
+	//		 - dataFile *File
+	//		 - mapFile *File
+	//		 - hashMap
+	// 2) Store keys in a hash map
+	// 3) Rebuild the hash map when the application start up
+	// 4) Allow configuration of file locations (currently everything lives in tmp)
+	// Add so that we can handle requests on a 'per store' level. i.e. /animals/cat /animals/dog etc..
+	// Add ability to add a store, delete a store etc - this means we will need to dynamically handle routes
+
 	fmt.Println("Server started")
-	// Shouldn't we use Handle over HandleFunc? At least the way it's currently written
-	http.HandleFunc("/", handler)
+	s := store.Open("/tmp/data.txt", "/tmp/map.txt")
+	r := requestHandler{kvStore: &s}
+
+	// Currently we can't do this due to the way we use ListenAndServe. We just have to murder the application
+	// see below
+	//defer store.Close()
+	// http.HandleFunc("/", handler)
+
+	// More elegant solution for start / stop of http server
+	// https://stackoverflow.com/questions/39320025/how-to-stop-http-listenandserve
+	http.Handle("/", &r) // New creates a reference vs creating a var and passing the address
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-func handler(w http.ResponseWriter, r *http.Request) {
+// https://golang.org/pkg/net/http/#Handler
+func (rHandler requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+
+	fmt.Println("ServeHTTP")
 
 	// If we just hold the keys as a map type then what happens if our system goes down?
 	// If we write an append only map file with the last value for a given key being the current data location
 	// then we can rebuild if needed
 	// When we start the server up we should read our map file into our map data type
-	mapFile, err := os.OpenFile("/tmp/map.txt", os.O_APPEND|os.O_CREATE|os.O_RDWR, 0644)
-	if err != nil {
-		// read up on the methods for error handling
-		log.Fatal(err)
-	}
+	// mapFile, err := os.OpenFile("/tmp/map.txt", os.O_APPEND|os.O_CREATE|os.O_RDWR, 0644)
+	// if err != nil {
+	// 	// read up on the methods for error handling
+	// 	log.Fatal(err)
+	// }
 
-	defer mapFile.Close()
+	// defer mapFile.Close()
 
-	// Pick up the file name from configuration
-	// We also want to open the file at the beginning of the application and have it 'hittable'
-	// throughout
-	dataFile, err := os.OpenFile("/tmp/data.txt", os.O_APPEND|os.O_CREATE|os.O_RDWR, 0644)
-	if err != nil {
-		log.Fatal(err)
-	}
-	// Deffered until the surrounding function is completed. Probably don't want this as want file constantly open
-	defer dataFile.Close()
+	// // Pick up the file name from configuration
+	// // We also want to open the file at the beginning of the application and have it 'hittable'
+	// // throughout
+	// dataFile, err := os.OpenFile("/tmp/data.txt", os.O_APPEND|os.O_CREATE|os.O_RDWR, 0644)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// // Deffered until the surrounding function is completed. Probably don't want this as want file constantly open
+	// defer dataFile.Close()
 
 	// the path is /add/ so get everything after the 5th char.
 	// see if there is a better way to deal with routes
-	key := r.URL.Path[1:]
 
 	switch method := r.Method; method {
 	case "POST":
-		handlePost(mapFile, dataFile, key, r)
+		handlePost(rHandler.kvStore, r)
 	case "GET":
-		handleGet(mapFile, dataFile, key, w)
+		handleGet(rHandler.kvStore, w, r)
 	default:
 		fmt.Println("Unrecognised HTTP request type")
 	}
 }
 
-func handlePost(mapFile *os.File, dataFile *os.File, key string, httpRequest *http.Request) {
+func handlePost(kvStore *store.Kvstore, httpRequest *http.Request) {
 	// this is the value we want to save
 	// need to add validation
 	value, err := ioutil.ReadAll(httpRequest.Body)
@@ -66,70 +89,11 @@ func handlePost(mapFile *os.File, dataFile *os.File, key string, httpRequest *ht
 		log.Fatal(err)
 	}
 
-	// we shouldn't be getting the file size on every write but for the moment find out the length of the file
-	// so we can create our kv map
-	fileStat, err := dataFile.Stat()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	valueToWrite := []byte(value)
-	// Read more about the below.. nabbed straight from stackoverflow
-	// Length of value as a uint converted to binary
-	sizeAndValue := make([]byte, 4)
-	binary.LittleEndian.PutUint32(sizeAndValue, uint32(len(valueToWrite)))
-
-	// Write the bytes written and 'value' to the data file.
-	if _, err = dataFile.Write(append(sizeAndValue, valueToWrite...)); err != nil {
-		log.Fatal(err)
-	}
-
-	keyMap := key + "!" + strconv.FormatInt(fileStat.Size(), 10) + "\n"
-	fmt.Println(keyMap)
-
-	// for each key we want to hold start position and length
-	if _, err := mapFile.Write([]byte(keyMap)); err != nil {
-		log.Fatal(err)
-	}
+	store.WriteData(kvStore, value, httpRequest.URL.Path[1:])
 }
 
-func handleGet(mapFile *os.File, dataFile *os.File, key string, responseWriter http.ResponseWriter) {
-	// Pretty much a temporary function as we want this to be an in memory hash-map
-	fmt.Println("Handling get")
-	scanner := bufio.NewScanner(mapFile)
-
-	var length int
-	var location int64
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		fileKey := strings.Split(line, "!")
-		if fileKey[0] == key {
-
-			var err error
-			location, err = strconv.ParseInt(fileKey[1], 10, 64)
-
-			if err != nil {
-				log.Fatal(err)
-			}
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		log.Fatal(err)
-	}
-
-	lengthToReadBytes := make([]byte, 4)
-	if _, err := dataFile.ReadAt(lengthToReadBytes, location); err != nil {
-		log.Fatal(err)
-	}
-
-	bytes := make([]byte, binary.LittleEndian.Uint32(lengthToReadBytes))
-	if _, err := dataFile.ReadAt(bytes, location+4); err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Println("Key", key, "Location", location, "Length", length)
+func handleGet(kvStore *store.Kvstore, responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	bytes := store.ReadData(kvStore, httpRequest.URL.Path[1:])
 	responseWriter.WriteHeader(200)
 	responseWriter.Write(bytes)
 }
