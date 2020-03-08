@@ -15,23 +15,19 @@ type requestHandler struct {
 func main() {
 
 	// TODO:
-	// 2) Store keys in a hash map
-	// 3) Rebuild the hash map when the application start up
 	// 4) Allow configuration of file locations (currently everything lives in tmp)
-	// 5) Add so that we can handle requests on a 'per store' level. i.e. /animals/cat /animals/dog etc..
+	// 5) Add so that we can handle requests on a 'per store/bucket' level. i.e. /animals/cat /animals/dog etc..
 	// 6) Add ability to add a store, delete a store etc - this means we will need to dynamically handle routes
+	// 7) Bug: doesn't create file on first run?
+	// 8) Bug: reads the first value in the data file if you 'get' a non-existent key
+	// 9) Sort out the critical sections. Look at RWMutex.
+	// 10) Change so we don't have to murder the application to stop the server - // https://stackoverflow.com/questions/39320025/how-to-stop-http-listenandserve
+	// 10b) Then we can add in a call to store.close() to elegantly close the files
 
 	fmt.Println("Server started")
-	s := store.Open("/tmp/data.txt", "/tmp/map.txt")
+	s := store.Open("/tmp/data.txt")
 	r := requestHandler{kvStore: &s}
 
-	// Currently we can't do this due to the way we use ListenAndServe. We just have to murder the application
-	// see below
-	//defer store.Close()
-	// http.HandleFunc("/", handler)
-
-	// More elegant solution for start / stop of http server
-	// https://stackoverflow.com/questions/39320025/how-to-stop-http-listenandserve
 	http.Handle("/", &r) // New creates a reference vs creating a var and passing the address
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
@@ -41,32 +37,7 @@ func (rHandler requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 
 	fmt.Println("ServeHTTP")
 
-	// If we just hold the keys as a map type then what happens if our system goes down?
-	// If we write an append only map file with the last value for a given key being the current data location
-	// then we can rebuild if needed
-	// When we start the server up we should read our map file into our map data type
-	// mapFile, err := os.OpenFile("/tmp/map.txt", os.O_APPEND|os.O_CREATE|os.O_RDWR, 0644)
-	// if err != nil {
-	// 	// read up on the methods for error handling
-	// 	log.Fatal(err)
-	// }
-
-	// defer mapFile.Close()
-
-	// // Pick up the file name from configuration
-	// // We also want to open the file at the beginning of the application and have it 'hittable'
-	// // throughout
-	// dataFile, err := os.OpenFile("/tmp/data.txt", os.O_APPEND|os.O_CREATE|os.O_RDWR, 0644)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	// // Deffered until the surrounding function is completed. Probably don't want this as want file constantly open
-	// defer dataFile.Close()
-
-	// the path is /add/ so get everything after the 5th char.
-	// see if there is a better way to deal with routes
-
-	switch method := r.Method; method {
+	switch r.Method {
 	case "POST":
 		handlePost(rHandler.kvStore, r)
 	case "GET":

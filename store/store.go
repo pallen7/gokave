@@ -1,12 +1,9 @@
 package store
 
 import (
-	"bufio"
 	"fmt"
 	"log"
 	"os"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
@@ -16,13 +13,12 @@ import (
 // Should we add a store interface? - read up
 type Kvstore struct {
 	dataFile    *os.File
-	mapFile     *os.File
-	dataFilePos map[string]int64
+	dataFileMap map[string]int64
 	mutex       sync.Mutex
 }
 
 // Open does the open
-func Open(dataFileName string, mapFileName string) Kvstore {
+func Open(dataFileName string) Kvstore {
 	fmt.Println("Initialising Store")
 
 	// todo: on startup read the keys from the data file into a map
@@ -32,15 +28,9 @@ func Open(dataFileName string, mapFileName string) Kvstore {
 		log.Fatal(err)
 	}
 
-	mapFile, err := os.OpenFile(mapFileName, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0644)
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	return Kvstore{
 		dataFile:    dataFile,
-		mapFile:     mapFile,
-		dataFilePos: make(map[string]int64),
+		dataFileMap: initialiseDataFileMap(dataFile),
 	}
 }
 
@@ -70,7 +60,7 @@ func WriteData(store *Kvstore, value []byte, key string) {
 
 	// ** Critical section
 	store.mutex.Lock()
-	fmt.Println("Entering critical section")
+	fmt.Println("Entering critical section. Writing:", key)
 
 	time.Sleep(1 * time.Second)
 
@@ -89,51 +79,16 @@ func WriteData(store *Kvstore, value []byte, key string) {
 		log.Fatal(err)
 	}
 
-	keyMap := key + "!" + strconv.FormatInt(fileStat.Size(), 10) + "\n"
-	fmt.Println(keyMap)
+	store.dataFileMap[key] = fileStat.Size()
 
-	// for each key we want to hold start position and length
-	if _, err := store.mapFile.Write([]byte(keyMap)); err != nil {
-		log.Fatal(err)
-	}
-
-	store.dataFilePos[key] = fileStat.Size()
-
-	// ** End critical section
-	// not idiomatic. We should defer this call
 	store.mutex.Unlock()
+	fmt.Println("Exiting critical section")
 }
 
 // ReadData read data from the store
 func ReadData(kvStore *Kvstore, key string) []byte {
-	// Pretty much a temporary function as we want this to be an in memory hash-map
-	// But this can make up the bulk of our hash map rehydration
-	fmt.Println("Handling get")
-	kvStore.mapFile.Seek(0, 0)
-	scanner := bufio.NewScanner(kvStore.mapFile)
 
-	var location int64
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		fileKey := strings.Split(line, "!")
-		if fileKey[0] == key {
-
-			var err error
-			location, err = strconv.ParseInt(fileKey[1], 10, 64)
-
-			if err != nil {
-				log.Fatal(err)
-			}
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		log.Fatal(err)
-	}
-
-	// Ignore the mapfile and use our hash map
-	location = kvStore.dataFilePos[key]
+	location := kvStore.dataFileMap[key]
 
 	metadata := make([]byte, 4)
 	if _, err := kvStore.dataFile.ReadAt(metadata, location); err != nil {
@@ -141,11 +96,10 @@ func ReadData(kvStore *Kvstore, key string) []byte {
 	}
 
 	// First byte is keyLength. Next 3 bytes are dataLength
+	keyLength := int(metadata[0])
 	dataLength := int(metadata[3]) << 16
 	dataLength += int(metadata[2]) << 8
 	dataLength += int(metadata[1])
-
-	keyLength := int(metadata[0])
 
 	data := make([]byte, dataLength)
 	if _, err := kvStore.dataFile.ReadAt(data, location+4+int64(keyLength)); err != nil {
@@ -154,6 +108,76 @@ func ReadData(kvStore *Kvstore, key string) []byte {
 
 	fmt.Println("Key", key, "Location", location, "dataLength", dataLength, "keyLength", keyLength)
 	return data
+}
+
+func initialiseDataFileMap(dataFile *os.File) map[string]int64 {
+
+	fileStat, err := dataFile.Stat()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fileSize := fileStat.Size()
+	var location int64 = 0
+
+	fmt.Println("fileSize", fileSize)
+
+	dataFileMap := make(map[string]int64)
+
+	for location < fileSize {
+		// Get metadata
+		metadata := make([]byte, 4)
+		if _, err := dataFile.ReadAt(metadata, location); err != nil {
+			log.Fatal(err)
+		}
+		keyLength := int(metadata[0])
+		dataLength := int(metadata[3]) << 16
+		dataLength += int(metadata[2]) << 8
+		dataLength += int(metadata[1])
+
+		// Read the key value
+		key := make([]byte, keyLength)
+		if _, err := dataFile.ReadAt(key, location+4); err != nil {
+			log.Fatal(err)
+		}
+
+		fmt.Println("Key:", string(key), "Read at:", location)
+
+		dataFileMap[string(key)] = location
+
+		location += int64(keyLength) + int64(dataLength) + 4
+	}
+
+	// Read 4 bytes
+	// 1st byte = key length
+	// 2-4 bytes = datalength
+	// Read Key
+	// Save Key and location to mapa
+	// Set offset to keylength + datalength + 4
+
+	// scanner := bufio.NewScanner(dataFile)
+
+	// var location int64
+
+	// for scanner.Scan() {
+	// 	line := scanner.Text()
+	// 	fileKey := strings.Split(line, "!")
+	// 	if fileKey[0] == key {
+
+	// 		var err error
+	// 		location, err = strconv.ParseInt(fileKey[1], 10, 64)
+
+	// 		if err != nil {
+	// 			log.Fatal(err)
+	// 		}
+	// 	}
+	// }
+
+	// if err := scanner.Err(); err != nil {
+	// 	log.Fatal(err)
+	// }
+
+	return dataFileMap
 }
 
 // Irrelevant until we handle the http shutdown more gracefully
