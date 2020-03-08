@@ -2,7 +2,6 @@ package store
 
 import (
 	"bufio"
-	"encoding/binary"
 	"fmt"
 	"log"
 	"os"
@@ -16,16 +15,17 @@ import (
 // outside world? - shit name too
 // Should we add a store interface? - read up
 type Kvstore struct {
-	dataFile *os.File
-	mapFile  *os.File
-	mutex    sync.Mutex
+	dataFile    *os.File
+	mapFile     *os.File
+	dataFilePos map[string]int64
+	mutex       sync.Mutex
 }
 
 // Open does the open
 func Open(dataFileName string, mapFileName string) Kvstore {
 	fmt.Println("Initialising Store")
 
-	// todo: on startup read the keys from the map file into a map
+	// todo: on startup read the keys from the data file into a map
 
 	dataFile, err := os.OpenFile(dataFileName, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0644)
 	if err != nil {
@@ -38,8 +38,9 @@ func Open(dataFileName string, mapFileName string) Kvstore {
 	}
 
 	return Kvstore{
-		dataFile: dataFile,
-		mapFile:  mapFile,
+		dataFile:    dataFile,
+		mapFile:     mapFile,
+		dataFilePos: make(map[string]int64),
 	}
 }
 
@@ -53,11 +54,11 @@ func WriteData(store *Kvstore, value []byte, key string) {
 	keyLength := len(key)
 
 	if dataLength > 16777215 {
-		log.Fatal("dataLength too long")
+		log.Fatal("Data length too long")
 	}
 
-	if keyLength > 16777215 {
-		log.Fatal("dataLength too long")
+	if keyLength > 255 {
+		log.Fatal("Key length too long")
 	}
 
 	metadata := make([]byte, 4)
@@ -83,7 +84,8 @@ func WriteData(store *Kvstore, value []byte, key string) {
 	// Write the bytes written and 'value' to the data file.
 	// append is a variadic function
 	// the elipses (...) effectively take every value independently from the valueToWrite slice (is my understanding)
-	if _, err = store.dataFile.Write(append(metadata, value...)); err != nil {
+	// This bit needs rewriting. Would it be more efficient to write to a fixed size array
+	if _, err = store.dataFile.Write(append(append(metadata, []byte(key)...), value...)); err != nil {
 		log.Fatal(err)
 	}
 
@@ -94,6 +96,8 @@ func WriteData(store *Kvstore, value []byte, key string) {
 	if _, err := store.mapFile.Write([]byte(keyMap)); err != nil {
 		log.Fatal(err)
 	}
+
+	store.dataFilePos[key] = fileStat.Size()
 
 	// ** End critical section
 	// not idiomatic. We should defer this call
@@ -128,18 +132,28 @@ func ReadData(kvStore *Kvstore, key string) []byte {
 		log.Fatal(err)
 	}
 
-	lengthToReadBytes := make([]byte, 4)
-	if _, err := kvStore.dataFile.ReadAt(lengthToReadBytes, location); err != nil {
+	// Ignore the mapfile and use our hash map
+	location = kvStore.dataFilePos[key]
+
+	metadata := make([]byte, 4)
+	if _, err := kvStore.dataFile.ReadAt(metadata, location); err != nil {
 		log.Fatal(err)
 	}
 
-	bytesRead := make([]byte, binary.LittleEndian.Uint32(lengthToReadBytes))
-	if _, err := kvStore.dataFile.ReadAt(bytesRead, location+4); err != nil {
+	// First byte is keyLength. Next 3 bytes are dataLength
+	dataLength := int(metadata[3]) << 16
+	dataLength += int(metadata[2]) << 8
+	dataLength += int(metadata[1])
+
+	keyLength := int(metadata[0])
+
+	data := make([]byte, dataLength)
+	if _, err := kvStore.dataFile.ReadAt(data, location+4+int64(keyLength)); err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Println("Key", key, "Location", location, "Length", lengthToReadBytes)
-	return bytesRead
+	fmt.Println("Key", key, "Location", location, "dataLength", dataLength, "keyLength", keyLength)
+	return data
 }
 
 // Irrelevant until we handle the http shutdown more gracefully
