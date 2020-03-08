@@ -15,16 +15,11 @@ type requestHandler struct {
 func main() {
 
 	// TODO:
-	// 1) Split into separate packages
-	//      Store
-	//		 - dataFile *File
-	//		 - mapFile *File
-	//		 - hashMap
 	// 2) Store keys in a hash map
 	// 3) Rebuild the hash map when the application start up
 	// 4) Allow configuration of file locations (currently everything lives in tmp)
-	// Add so that we can handle requests on a 'per store' level. i.e. /animals/cat /animals/dog etc..
-	// Add ability to add a store, delete a store etc - this means we will need to dynamically handle routes
+	// 5) Add so that we can handle requests on a 'per store' level. i.e. /animals/cat /animals/dog etc..
+	// 6) Add ability to add a store, delete a store etc - this means we will need to dynamically handle routes
 
 	fmt.Println("Server started")
 	s := store.Open("/tmp/data.txt", "/tmp/map.txt")

@@ -25,6 +25,8 @@ type Kvstore struct {
 func Open(dataFileName string, mapFileName string) Kvstore {
 	fmt.Println("Initialising Store")
 
+	// todo: on startup read the keys from the map file into a map
+
 	dataFile, err := os.OpenFile(dataFileName, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0644)
 	if err != nil {
 		log.Fatal(err)
@@ -44,16 +46,32 @@ func Open(dataFileName string, mapFileName string) Kvstore {
 // WriteData write some data
 func WriteData(store *Kvstore, value []byte, key string) {
 
-	// Read more about the below.. nabbed straight from stackoverflow
-	// Length of value as a uint converted to binary
-	sizeAndValue := make([]byte, 4)
-	binary.LittleEndian.PutUint32(sizeAndValue, uint32(len(value)))
+	// https://play.golang.org/p/xXzANmB6PJU bitwise operators 1 bytes keylength 3 bytes datalength
+
+	// The below should be in a createMetadata function
+	dataLength := len(value)
+	keyLength := len(key)
+
+	if dataLength > 16777215 {
+		log.Fatal("dataLength too long")
+	}
+
+	if keyLength > 16777215 {
+		log.Fatal("dataLength too long")
+	}
+
+	metadata := make([]byte, 4)
+
+	metadata[0] = byte(keyLength)
+	metadata[1] = byte(dataLength)
+	metadata[2] = byte(dataLength >> 8)
+	metadata[3] = byte(dataLength >> 16)
 
 	// ** Critical section
 	store.mutex.Lock()
 	fmt.Println("Entering critical section")
 
-	time.Sleep(5 * time.Second)
+	time.Sleep(1 * time.Second)
 
 	// we shouldn't be getting the file size on every write but for the moment find out the length of the file
 	// so we can create our kv map
@@ -65,7 +83,7 @@ func WriteData(store *Kvstore, value []byte, key string) {
 	// Write the bytes written and 'value' to the data file.
 	// append is a variadic function
 	// the elipses (...) effectively take every value independently from the valueToWrite slice (is my understanding)
-	if _, err = store.dataFile.Write(append(sizeAndValue, value...)); err != nil {
+	if _, err = store.dataFile.Write(append(metadata, value...)); err != nil {
 		log.Fatal(err)
 	}
 
@@ -85,6 +103,7 @@ func WriteData(store *Kvstore, value []byte, key string) {
 // ReadData read data from the store
 func ReadData(kvStore *Kvstore, key string) []byte {
 	// Pretty much a temporary function as we want this to be an in memory hash-map
+	// But this can make up the bulk of our hash map rehydration
 	fmt.Println("Handling get")
 	kvStore.mapFile.Seek(0, 0)
 	scanner := bufio.NewScanner(kvStore.mapFile)
