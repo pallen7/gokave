@@ -6,60 +6,98 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"path"
+	"strings"
 )
 
 type requestHandler struct {
-	kvStore *store.Kvstore
+	storeManager *store.Manager
 }
 
 func main() {
 
 	// TODO:
-	// 4) Allow configuration of file locations (currently everything lives in tmp)
-	// 5) Add so that we can handle requests on a 'per store/bucket' level. i.e. /animals/cat /animals/dog etc..
-	// 6) Add ability to add a store, delete a store etc - this means we will need to dynamically handle routes
-	// 7) Bug: doesn't create file on first run?
-	// 8) Bug: reads the first value in the data file if you 'get' a non-existent key
-	// 9) Sort out the critical sections. Look at RWMutex.
-	// 10) Change so we don't have to murder the application to stop the server - // https://stackoverflow.com/questions/39320025/how-to-stop-http-listenandserve
-	// 10b) Then we can add in a call to store.close() to elegantly close the files
+	// 1) Add a configuration file to the store manager and add ADD/DELETE store functions
+	//    format: http://localhost:8080/store/admin/<store_name>
+	// 2) Bug: reads the first value in the data file if you 'get' a non-existent key
+	//         (or crashes if first read is non-existent)
+	// 3) Sort out the critical sections. Look at RWMutex.
+	// 4) Look at the best way to handle errors
+	// 5) Review the program layout, naming conventions etc
 
 	fmt.Println("Server started")
-	s := store.Open("/tmp/data.txt")
-	r := requestHandler{kvStore: &s}
+	m := store.InitialiseManager()
+	r := requestHandler{
+		storeManager: &m,
+	}
 
-	http.Handle("/", &r) // New creates a reference vs creating a var and passing the address
+	http.Handle("/store/", &r) // New creates a reference vs creating a var and passing the address
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
 // https://golang.org/pkg/net/http/#Handler
 func (rHandler requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
-	fmt.Println("ServeHTTP")
-
 	switch r.Method {
 	case "POST":
-		handlePost(rHandler.kvStore, r)
+		handlePost(rHandler.storeManager, w, r)
 	case "GET":
-		handleGet(rHandler.kvStore, w, r)
+		handleGet(rHandler.storeManager, w, r)
 	default:
 		fmt.Println("Unrecognised HTTP request type")
 	}
 }
 
-func handlePost(kvStore *store.Kvstore, httpRequest *http.Request) {
-	// this is the value we want to save
-	// need to add validation
+func handlePost(storeManager *store.Manager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	// Here we want a URL in the format /store/type/id - (case insensitive)
+	// We should wrap this up in a function
+	dir, id := path.Split(strings.ToLower(httpRequest.URL.Path))
+	cleanDir := strings.TrimPrefix(strings.TrimSuffix(dir, "/"), "/")
+	dirs := strings.Split(cleanDir, "/")
+
+	for i, d := range dirs {
+		fmt.Println(i, d)
+	}
+
+	if len(dirs) != 2 {
+		http.NotFound(responseWriter, httpRequest)
+		return
+	}
+	if dirs[0] != "store" {
+		http.NotFound(responseWriter, httpRequest)
+		return
+	}
 	value, err := ioutil.ReadAll(httpRequest.Body)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	store.WriteData(kvStore, value, httpRequest.URL.Path[1:])
+	fmt.Printf("Post: %s Store: %s Id: %s", value, dirs[1], id)
+	store.WriteToStore(storeManager, dirs[1], value, id)
 }
 
-func handleGet(kvStore *store.Kvstore, responseWriter http.ResponseWriter, httpRequest *http.Request) {
-	bytes := store.ReadData(kvStore, httpRequest.URL.Path[1:])
+func handleGet(storeManager *store.Manager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
+
+	// Here we want a URL in the format /store/type/id - (case insensitive)
+	// We should wrap this up in a function
+	dir, id := path.Split(strings.ToLower(httpRequest.URL.Path))
+	cleanDir := strings.TrimPrefix(strings.TrimSuffix(dir, "/"), "/")
+	dirs := strings.Split(cleanDir, "/")
+
+	for i, d := range dirs {
+		fmt.Println(i, d)
+	}
+
+	if len(dirs) != 2 {
+		http.NotFound(responseWriter, httpRequest)
+		return
+	}
+	if dirs[0] != "store" {
+		http.NotFound(responseWriter, httpRequest)
+		return
+	}
+	fmt.Printf("Get %s from store: %s", id, dirs[1])
+	bytes := store.ReadFromStore(storeManager, dirs[1], id)
 	responseWriter.WriteHeader(200)
 	responseWriter.Write(bytes)
 }

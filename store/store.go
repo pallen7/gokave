@@ -5,8 +5,13 @@ import (
 	"log"
 	"os"
 	"sync"
-	"time"
 )
+
+// Sitting on top of Kvstore we want a KvstoreManager
+// Reads a stores.txt file (we need to block adding a store called stores)
+// Initialise: Opens each of the stores and saves in a map[string]*store ?
+// AddStore will update stores.txt and add an initialised store to the KvstoreManager
+// RemoveStore will update stores.txt
 
 // Kvstore I think this should only be a package level variable and not accessible to the
 // outside world? - shit name too
@@ -61,8 +66,6 @@ func WriteData(store *Kvstore, value []byte, key string) {
 	// ** Critical section
 	store.mutex.Lock()
 	fmt.Println("Entering critical section. Writing:", key)
-
-	time.Sleep(1 * time.Second)
 
 	// we shouldn't be getting the file size on every write but for the moment find out the length of the file
 	// so we can create our kv map
@@ -147,35 +150,6 @@ func initialiseDataFileMap(dataFile *os.File) map[string]int64 {
 
 		location += int64(keyLength) + int64(dataLength) + 4
 	}
-
-	// Read 4 bytes
-	// 1st byte = key length
-	// 2-4 bytes = datalength
-	// Read Key
-	// Save Key and location to mapa
-	// Set offset to keylength + datalength + 4
-
-	// scanner := bufio.NewScanner(dataFile)
-
-	// var location int64
-
-	// for scanner.Scan() {
-	// 	line := scanner.Text()
-	// 	fileKey := strings.Split(line, "!")
-	// 	if fileKey[0] == key {
-
-	// 		var err error
-	// 		location, err = strconv.ParseInt(fileKey[1], 10, 64)
-
-	// 		if err != nil {
-	// 			log.Fatal(err)
-	// 		}
-	// 	}
-	// }
-
-	// if err := scanner.Err(); err != nil {
-	// 	log.Fatal(err)
-	// }
 
 	return dataFileMap
 }
