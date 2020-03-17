@@ -28,11 +28,12 @@ func main() {
 	//    format: http://localhost:8080/store/admin/<store_name>
 	// 2) Bug: reads the first value in the data file if you 'get' a non-existent key
 	//         (or crashes if first read is non-existent)
-	// 3) Sort out the critical sections. Look at RWMutex.
-	// 4) Look at the best way to handle errors
-	// 5) Review the program layout, naming conventions etc
-	// 6) Add readme and sort out the comments for all of the public values
-	// 7) Add in multiple files per store
+	// 3) Add in multiple files per store
+	// 4) Sort out the critical sections. Look at RWMutex. vs goroutines and channels etc
+	// 5) Look at the best way to handle errors
+	// 6) Review the program layout, naming conventions etc
+	// 7) Add readme and sort out the comments for all of the public values
+
 	// 8) Add in the purging of old files
 
 	fmt.Println("Server started")
@@ -67,6 +68,7 @@ func (aHandler adminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "POST":
 		handleAdminPost(aHandler.storeManager, w, r)
 	case "GET":
+		// Fill this in later.. Get Store config?
 		fmt.Println("Admin - GET")
 	case "DELETE":
 		fmt.Println("Admin - DELETE")
