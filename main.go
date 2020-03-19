@@ -23,18 +23,26 @@ type adminHandler struct {
 
 func main() {
 
-	// TODO:
-	// 1) Add a file to save store info and add ADD/DELETE store functions
-	//    format: http://localhost:8080/store/admin/<store_name>
-	// 2) Bug: reads the first value in the data file if you 'get' a non-existent key
-	//         (or crashes if first read is non-existent)
-	// 3) Add in multiple files per store
+	// MVP:
+	// 1) Add GET for the Store config
+	// 2) Add DELETE (tombstoning) from a store
 	// 4) Sort out the critical sections. Look at RWMutex. vs goroutines and channels etc
-	// 5) Look at the best way to handle errors
-	// 6) Review the program layout, naming conventions etc
+	//         (or crashes if first read is non-existent)
+	// 5) Review the program layout, naming conventions, file handling etc
+	// 5b) add some more validation around what can be used as store names, keys, validate JSON values etc
+	// 6) Look at the best way to handle errors
 	// 7) Add readme and sort out the comments for all of the public values
+	// 8) Separate the API from the store & storemanager so they can be consumed directly
+	// 9) Add tests
 
-	// 8) Add in the purging of old files
+	// Bugs:
+	// - Reads the first value in the data file if you 'get' a non-existent key
+	// - After deleting a store for the 2nd time got a load of random bytes turn up at the beginning of data.json
+
+	// Future:
+	// 1) Add in multiple files per store
+	// 2) Add in the purging of old files
+	// 3) Replication to multiple nodes
 
 	fmt.Println("Server started")
 	sm := gkstore.InitialiseStoreManager()
@@ -71,7 +79,7 @@ func (aHandler adminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Fill this in later.. Get Store config?
 		fmt.Println("Admin - GET")
 	case "DELETE":
-		fmt.Println("Admin - DELETE")
+		handleAdminDelete(aHandler.storeManager, w, r)
 	default:
 		fmt.Println("Unrecognised HTTP admin request type")
 	}
@@ -141,4 +149,18 @@ func handleAdminPost(storeManager *gkstore.StoreManager, responseWriter http.Res
 
 	fmt.Printf("Create store: %s:\n", id)
 	storeManager.AddStore(id)
+}
+
+func handleAdminDelete(storeManager *gkstore.StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	dir, id := path.Split(httpRequest.URL.Path)
+	cleanDir := strings.TrimPrefix(strings.TrimSuffix(dir, "/"), "/")
+	dirs := strings.Split(cleanDir, "/")
+
+	if len(dirs) != 2 {
+		http.NotFound(responseWriter, httpRequest)
+		return
+	}
+
+	fmt.Printf("Remove store: %s:\n", id)
+	storeManager.RemoveStore(id)
 }
