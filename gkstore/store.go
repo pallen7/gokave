@@ -88,6 +88,26 @@ func WriteData(store *Kvstore, value []byte, key string) {
 	fmt.Println("Exiting critical section")
 }
 
+// DeleteData - remove from map and tombstone in the data file
+func DeleteData(kvStore *Kvstore, key string) {
+
+	// We should check that the key exists before we delete
+	delete(kvStore.dataFileMap, key)
+
+	keyLength := len(key)
+	dataLength := -1
+
+	// In the data file let's use dataLength of -1 to indicate deletion
+
+	metadata := make([]byte, 4)
+
+	metadata[0] = byte(keyLength)
+	metadata[1] = byte(dataLength)
+	metadata[2] = byte(dataLength >> 8)
+	metadata[3] = byte(dataLength >> 16)
+
+}
+
 // ReadData read data from the store
 func ReadData(kvStore *Kvstore, key string) []byte {
 
