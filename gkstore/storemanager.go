@@ -100,7 +100,41 @@ func (storeManager *StoreManager) AddStore(storeName string) {
 	configFile.WriteString(string(configString))
 }
 
-// RemoveStore - remove a store
+// GetStore - get the details of the store
+func (storeManager *StoreManager) GetStore(storeName string) []byte {
+
+	configFile, err := os.Open("/var/lib/gokave/store_data.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer configFile.Close()
+
+	byteValue, err := ioutil.ReadAll(configFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	config := new(Config)
+	storeConfig := new(StoreConfig)
+	json.Unmarshal(byteValue, config)
+
+	for _, store := range config.Stores {
+		if store.Name == storeName {
+			storeConfig.Name = store.Name
+			storeConfig.Files = store.Files
+		}
+	}
+
+	// We need to return a notfound if we don't have a store (or empty bytes?)
+	s, err := json.Marshal(storeConfig)
+	if err != nil {
+		log.Fatal()
+	}
+
+	return s
+}
+
+// RemoveStore - remove a store (change to Delete store to match the Restful API)
 // Currently this works by being pretty destructive and deleting the data files
 // probably want a slightly more nuanced option
 // This also needs encapsulating so that we do things the right way round or have a process

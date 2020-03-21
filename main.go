@@ -24,7 +24,6 @@ type adminHandler struct {
 func main() {
 
 	// MVP:
-	// 1) Add GET for the Store config
 	// 2) Add DELETE (tombstoning) from a store
 	// 4) Sort out the critical sections. Look at RWMutex. vs goroutines and channels etc
 	//         (or crashes if first read is non-existent)
@@ -77,7 +76,7 @@ func (aHandler adminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		handleAdminPost(aHandler.storeManager, w, r)
 	case "GET":
 		// Fill this in later.. Get Store config?
-		fmt.Println("Admin - GET")
+		handleAdminGet(aHandler.storeManager, w, r)
 	case "DELETE":
 		handleAdminDelete(aHandler.storeManager, w, r)
 	default:
@@ -163,4 +162,20 @@ func handleAdminDelete(storeManager *gkstore.StoreManager, responseWriter http.R
 
 	fmt.Printf("Remove store: %s:\n", id)
 	storeManager.RemoveStore(id)
+}
+
+func handleAdminGet(storeManager *gkstore.StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
+	dir, id := path.Split(httpRequest.URL.Path)
+	cleanDir := strings.TrimPrefix(strings.TrimSuffix(dir, "/"), "/")
+	dirs := strings.Split(cleanDir, "/")
+
+	if len(dirs) != 2 {
+		http.NotFound(responseWriter, httpRequest)
+		return
+	}
+
+	fmt.Printf("Get store: %s:\n", id)
+	bytes := storeManager.GetStore(id)
+	responseWriter.WriteHeader(http.StatusOK)
+	responseWriter.Write(bytes)
 }
