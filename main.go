@@ -44,7 +44,7 @@ func main() {
 	// 3) Replication to multiple nodes
 
 	fmt.Println("Server started")
-	sm := gkstore.InitialiseStoreManager()
+	sm, _ := gkstore.InitialiseStoreManager()
 	r := &requestHandler{storeManager: sm}
 	a := &adminHandler{storeManager: sm}
 
@@ -62,8 +62,8 @@ func (rHandler requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	switch r.Method {
 	case "POST":
 		handleRequestPost(rHandler.storeManager, w, r)
-	case "GET":
-		handleRequestGet(rHandler.storeManager, w, r)
+	// case "GET":
+	// 	handleRequestGet(rHandler.storeManager, w, r)
 	default:
 		fmt.Println("Unrecognised HTTP request type")
 	}
@@ -74,11 +74,11 @@ func (aHandler adminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "POST":
 		handleAdminPost(aHandler.storeManager, w, r)
-	case "GET":
-		// Fill this in later.. Get Store config?
-		handleAdminGet(aHandler.storeManager, w, r)
-	case "DELETE":
-		handleAdminDelete(aHandler.storeManager, w, r)
+	// case "GET":
+	// 	// Fill this in later.. Get Store config?
+	// 	handleAdminGet(aHandler.storeManager, w, r)
+	// case "DELETE":
+	// 	handleAdminDelete(aHandler.storeManager, w, r)
 	default:
 		fmt.Println("Unrecognised HTTP admin request type")
 	}
@@ -109,29 +109,29 @@ func handleRequestPost(storeManager *gkstore.StoreManager, responseWriter http.R
 	storeManager.WriteToStore(dirs[1], value, id)
 }
 
-func handleRequestGet(storeManager *gkstore.StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
+// func handleRequestGet(storeManager *gkstore.StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
 
-	// Here we want a URL in the format /store/type/id - (case insensitive)
-	// We should wrap this up in a function
-	// rename id to resource?
-	dir, id := path.Split(strings.ToLower(httpRequest.URL.Path))
-	cleanDir := strings.TrimPrefix(strings.TrimSuffix(dir, "/"), "/")
-	dirs := strings.Split(cleanDir, "/")
+// 	// Here we want a URL in the format /store/type/id - (case insensitive)
+// 	// We should wrap this up in a function
+// 	// rename id to resource?
+// 	dir, id := path.Split(strings.ToLower(httpRequest.URL.Path))
+// 	cleanDir := strings.TrimPrefix(strings.TrimSuffix(dir, "/"), "/")
+// 	dirs := strings.Split(cleanDir, "/")
 
-	if len(dirs) != 2 {
-		http.NotFound(responseWriter, httpRequest)
-		return
-	}
-	// Why do we need the below? Can't remember the reason since the http.handle sets this up
-	if dirs[0] != "store" {
-		http.NotFound(responseWriter, httpRequest)
-		return
-	}
-	fmt.Printf("Get %s from store: %s\n", id, dirs[1])
-	bytes := storeManager.ReadFromStore(dirs[1], id)
-	responseWriter.WriteHeader(200)
-	responseWriter.Write(bytes)
-}
+// 	if len(dirs) != 2 {
+// 		http.NotFound(responseWriter, httpRequest)
+// 		return
+// 	}
+// 	// Why do we need the below? Can't remember the reason since the http.handle sets this up
+// 	if dirs[0] != "store" {
+// 		http.NotFound(responseWriter, httpRequest)
+// 		return
+// 	}
+// 	fmt.Printf("Get %s from store: %s\n", id, dirs[1])
+// 	bytes := storeManager.ReadFromStore(dirs[1], id)
+// 	responseWriter.WriteHeader(200)
+// 	responseWriter.Write(bytes)
+// }
 
 func handleAdminPost(storeManager *gkstore.StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
 	// Here we want a URL in the format /store/admin/resource - (case insensitive)
@@ -150,32 +150,32 @@ func handleAdminPost(storeManager *gkstore.StoreManager, responseWriter http.Res
 	storeManager.AddStore(id)
 }
 
-func handleAdminDelete(storeManager *gkstore.StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
-	dir, id := path.Split(httpRequest.URL.Path)
-	cleanDir := strings.TrimPrefix(strings.TrimSuffix(dir, "/"), "/")
-	dirs := strings.Split(cleanDir, "/")
+// func handleAdminDelete(storeManager *gkstore.StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
+// 	dir, id := path.Split(httpRequest.URL.Path)
+// 	cleanDir := strings.TrimPrefix(strings.TrimSuffix(dir, "/"), "/")
+// 	dirs := strings.Split(cleanDir, "/")
 
-	if len(dirs) != 2 {
-		http.NotFound(responseWriter, httpRequest)
-		return
-	}
+// 	if len(dirs) != 2 {
+// 		http.NotFound(responseWriter, httpRequest)
+// 		return
+// 	}
 
-	fmt.Printf("Remove store: %s:\n", id)
-	storeManager.RemoveStore(id)
-}
+// 	fmt.Printf("Remove store: %s:\n", id)
+// 	storeManager.RemoveStore(id)
+// }
 
-func handleAdminGet(storeManager *gkstore.StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
-	dir, id := path.Split(httpRequest.URL.Path)
-	cleanDir := strings.TrimPrefix(strings.TrimSuffix(dir, "/"), "/")
-	dirs := strings.Split(cleanDir, "/")
+// func handleAdminGet(storeManager *gkstore.StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
+// 	dir, id := path.Split(httpRequest.URL.Path)
+// 	cleanDir := strings.TrimPrefix(strings.TrimSuffix(dir, "/"), "/")
+// 	dirs := strings.Split(cleanDir, "/")
 
-	if len(dirs) != 2 {
-		http.NotFound(responseWriter, httpRequest)
-		return
-	}
+// 	if len(dirs) != 2 {
+// 		http.NotFound(responseWriter, httpRequest)
+// 		return
+// 	}
 
-	fmt.Printf("Get store: %s:\n", id)
-	bytes := storeManager.GetStore(id)
-	responseWriter.WriteHeader(http.StatusOK)
-	responseWriter.Write(bytes)
-}
+// 	fmt.Printf("Get store: %s:\n", id)
+// 	bytes := storeManager.GetStore(id)
+// 	responseWriter.WriteHeader(http.StatusOK)
+// 	responseWriter.Write(bytes)
+// }

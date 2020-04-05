@@ -3,6 +3,7 @@ package gkstore
 import (
 	"encoding/json"
 	"fmt"
+	"go_play/gklogfile"
 	"io/ioutil"
 	"log"
 	"os"
@@ -10,7 +11,7 @@ import (
 
 // StoreManager - a manager of Kvstores
 type StoreManager struct {
-	stores map[string]*Kvstore // Does this need to be a pointer? Are maps always pointers?
+	stores map[string]*gklogfile.KvStore
 	config *Config
 }
 
@@ -27,11 +28,11 @@ type Config struct {
 }
 
 // InitialiseStoreManager - inialise the store manager
-func InitialiseStoreManager() *StoreManager {
+func InitialiseStoreManager() (*StoreManager, error) {
 
 	// We need to encapsulate this
 	// Every time we update the config we want to write to the file
-	configFile, err := os.OpenFile("/var/lib/gokave/store_data.json", os.O_APPEND|os.O_CREATE|os.O_RDWR, 0644)
+	configFile, err := os.OpenFile("c:\\devwork\\go\\gokave_config\\store_data.json", os.O_APPEND|os.O_CREATE|os.O_RDWR, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -45,20 +46,24 @@ func InitialiseStoreManager() *StoreManager {
 	config := new(Config)
 	json.Unmarshal(byteValue, config)
 
-	storeMap := make(map[string]*Kvstore)
+	storeMap := make(map[string]*gklogfile.KvStore)
 
 	for _, store := range config.Stores {
 		for _, file := range store.Files {
 			fmt.Println("Initialising:", store.Name, "with file:", file)
-			s := Open(file)
-			storeMap[store.Name] = &s
+			s, err := gklogfile.Open(file)
+			// todo: decide how we want to handle a single store failure
+			if err != nil {
+				return nil, err
+			}
+			storeMap[store.Name] = s
 		}
 	}
 
 	return &StoreManager{
 		stores: storeMap,
 		config: config,
-	}
+	}, nil
 }
 
 // AddStore - add a new store
@@ -74,12 +79,15 @@ func (storeManager *StoreManager) AddStore(storeName string) {
 
 	fmt.Printf("Creating store: %s\n", storeName)
 
-	s := Open(fmt.Sprintf("/var/lib/gokave/%s.gkv", storeName))
-	storeManager.stores[storeName] = &s
+	s, err := gklogfile.Open(fmt.Sprintf("c:\\devwork\\go\\gokave_data\\%s.gkv", storeName))
+	if err != nil {
+		log.Fatal(err)
+	}
+	storeManager.stores[storeName] = s
 
 	newStoreConfig := StoreConfig{
 		Name:  storeName,
-		Files: []string{fmt.Sprintf("/var/lib/gokave/%s.gkv", storeName)},
+		Files: []string{fmt.Sprintf("c:\\devwork\\go\\gokave_data\\%s.gkv", storeName)},
 	}
 	storeManager.config.Stores = append(storeManager.config.Stores, newStoreConfig)
 
@@ -91,7 +99,7 @@ func (storeManager *StoreManager) AddStore(storeName string) {
 	}
 
 	// Now update the config with the updated config
-	configFile, err := os.Create("/var/lib/gokave/store_data.json")
+	configFile, err := os.Create("c:\\devwork\\go\\gokave_config\\store_data.json")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -100,107 +108,107 @@ func (storeManager *StoreManager) AddStore(storeName string) {
 	configFile.WriteString(string(configString))
 }
 
-// GetStore - get the details of the store
-func (storeManager *StoreManager) GetStore(storeName string) []byte {
+// // GetStore - get the details of the store
+// func (storeManager *StoreManager) GetStore(storeName string) []byte {
 
-	configFile, err := os.Open("/var/lib/gokave/store_data.json")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer configFile.Close()
+// 	configFile, err := os.Open("c:\\devwork\\go\\gokave_config\\store_data.json")
+// 	if err != nil {
+// 		log.Fatal(err)
+// 	}
+// 	defer configFile.Close()
 
-	byteValue, err := ioutil.ReadAll(configFile)
-	if err != nil {
-		log.Fatal(err)
-	}
+// 	byteValue, err := ioutil.ReadAll(configFile)
+// 	if err != nil {
+// 		log.Fatal(err)
+// 	}
 
-	config := new(Config)
-	storeConfig := new(StoreConfig)
-	json.Unmarshal(byteValue, config)
+// 	config := new(Config)
+// 	storeConfig := new(StoreConfig)
+// 	json.Unmarshal(byteValue, config)
 
-	for _, store := range config.Stores {
-		if store.Name == storeName {
-			storeConfig.Name = store.Name
-			storeConfig.Files = store.Files
-		}
-	}
+// 	for _, store := range config.Stores {
+// 		if store.Name == storeName {
+// 			storeConfig.Name = store.Name
+// 			storeConfig.Files = store.Files
+// 		}
+// 	}
 
-	// We need to return a notfound if we don't have a store (or empty bytes?)
-	s, err := json.Marshal(storeConfig)
-	if err != nil {
-		log.Fatal()
-	}
+// 	// We need to return a notfound if we don't have a store (or empty bytes?)
+// 	s, err := json.Marshal(storeConfig)
+// 	if err != nil {
+// 		log.Fatal()
+// 	}
 
-	return s
-}
+// 	return s
+// }
 
-// RemoveStore - remove a store (change to Delete store to match the Restful API)
-// Currently this works by being pretty destructive and deleting the data files
-// probably want a slightly more nuanced option
-// This also needs encapsulating so that we do things the right way round or have a process
-// to clean up if it falls over mid way through
-func (storeManager *StoreManager) RemoveStore(storeName string) {
+// // RemoveStore - remove a store (change to Delete store to match the Restful API)
+// // Currently this works by being pretty destructive and deleting the data files
+// // probably want a slightly more nuanced option
+// // This also needs encapsulating so that we do things the right way round or have a process
+// // to clean up if it falls over mid way through
+// func (storeManager *StoreManager) RemoveStore(storeName string) {
 
-	if storeManager.stores[storeName] == nil {
-		fmt.Println("Store does not exist")
-		return
-	}
+// 	if storeManager.stores[storeName] == nil {
+// 		fmt.Println("Store does not exist")
+// 		return
+// 	}
 
-	fmt.Printf("Removing store: %s\n", storeName)
+// 	fmt.Printf("Removing store: %s\n", storeName)
 
-	// We need to encapsulate this - dupe of initialise.. And will be needed in other reading of files
-	// Every time we update the config we want to write to the file
-	configFile, err := os.OpenFile("/var/lib/gokave/store_data.json", os.O_RDWR, 0644)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer configFile.Close()
+// 	// We need to encapsulate this - dupe of initialise.. And will be needed in other reading of files
+// 	// Every time we update the config we want to write to the file
+// 	configFile, err := os.OpenFile("c:\\devwork\\go\\gokave_config\\store_data.json", os.O_RDWR, 0644)
+// 	if err != nil {
+// 		log.Fatal(err)
+// 	}
+// 	defer configFile.Close()
 
-	byteValue, err := ioutil.ReadAll(configFile)
-	if err != nil {
-		log.Fatal(err)
-	}
+// 	byteValue, err := ioutil.ReadAll(configFile)
+// 	if err != nil {
+// 		log.Fatal(err)
+// 	}
 
-	config := new(Config)
-	updatedConfig := new(Config)
-	json.Unmarshal(byteValue, config)
+// 	config := new(Config)
+// 	updatedConfig := new(Config)
+// 	json.Unmarshal(byteValue, config)
 
-	// Loop around the existing
-	// If this is the store we want to delete remove all files
-	// Otherwise add the Store to an updatedConfig
-	for _, store := range config.Stores {
-		if store.Name == storeName {
-			for _, file := range store.Files {
-				os.Remove(file)
-				fmt.Printf("Removed file: %s\n", file)
-			}
-		} else {
-			updatedConfig.Stores = append(updatedConfig.Stores, store)
-		}
-	}
+// 	// Loop around the existing
+// 	// If this is the store we want to delete remove all files
+// 	// Otherwise add the Store to an updatedConfig
+// 	for _, store := range config.Stores {
+// 		if store.Name == storeName {
+// 			for _, file := range store.Files {
+// 				os.Remove(file)
+// 				fmt.Printf("Removed file: %s\n", file)
+// 			}
+// 		} else {
+// 			updatedConfig.Stores = append(updatedConfig.Stores, store)
+// 		}
+// 	}
 
-	// Remove from the store map
-	delete(storeManager.stores, storeName)
+// 	// Remove from the store map
+// 	delete(storeManager.stores, storeName)
 
-	// Update the config file
-	configString, err := json.Marshal(updatedConfig)
-	if err != nil {
-		log.Fatal(err)
-	}
-	configFile.Truncate(0)
-	configFile.Write(configString)
+// 	// Update the config file
+// 	configString, err := json.Marshal(updatedConfig)
+// 	if err != nil {
+// 		log.Fatal(err)
+// 	}
+// 	configFile.Truncate(0)
+// 	configFile.Write(configString)
 
-	fmt.Printf("Updated config: %v\n", updatedConfig.Stores)
-}
+// 	fmt.Printf("Updated config: %v\n", updatedConfig.Stores)
+// }
 
-// ReadFromStore - reads from a store
-func (storeManager *StoreManager) ReadFromStore(storeName string, key string) []byte {
-	s := storeManager.stores[storeName]
-	return ReadData(s, key)
-}
+// // ReadFromStore - reads from a store
+// func (storeManager *StoreManager) ReadFromStore(storeName string, key string) []byte {
+// 	s := storeManager.stores[storeName]
+// 	return ReadData(s, key)
+// }
 
 // WriteToStore - writes to a store
 func (storeManager *StoreManager) WriteToStore(storeName string, value []byte, key string) {
 	s := storeManager.stores[storeName]
-	WriteData(s, value, key)
+	s.Write(value, key)
 }
