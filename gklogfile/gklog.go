@@ -1,6 +1,7 @@
 package gklogfile
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"os"
@@ -76,20 +77,27 @@ func (store *KvStore) Write(value []byte, key string) {
 	store.mutex.Lock()
 	fmt.Println("Entering critical section. Writing:", key)
 
-	// we shouldn't be getting the file size on every write but for the moment find out the length of the file
+	// Should we be getting the file size on every write? For the moment find out the length of the file
 	// so we can create our kv map
 	fileStat, err := store.file.Stat()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Write the bytes written and 'value' to the data file.
-	// append is a variadic function
-	// the elipses (...) effectively take every value independently from the valueToWrite slice (is my understanding)
-	// This bit needs rewriting. Would it be more efficient to write to a fixed size array
-	if _, err = store.file.Write(append(append(md, []byte(key)...), value...)); err != nil {
+	writer := bufio.NewWriterSize(store.file, len(md)+md.keyLength()+md.valueLength())
+	writer.Write(md)
+	writer.WriteString(key)
+	writer.Write(value)
+	if err = writer.Flush(); err != nil {
 		log.Fatal(err)
 	}
+
+	// // Write the bytes written and 'value' to the data file.
+	// // append is a variadic function
+	// // the elipses (...) effectively take every value independently from the valueToWrite slice (is my understanding)
+	// if _, err = store.file.Write(append(append(md, []byte(key)...), value...)); err != nil {
+	// 	log.Fatal(err)
+	// }
 
 	store.fileMap[key] = fileStat.Size()
 
@@ -115,7 +123,7 @@ func initialiseFileMap(file *os.File) (map[string]int64, error) {
 
 		key := make([]byte, meta.keyLength())
 		if _, err := file.ReadAt(key, offset+int64(len(meta))); err != nil {
-			log.Fatal(err)
+			return nil, err
 		}
 
 		fmt.Printf("\tKey: %s read at: %d\n", string(key), offset)
