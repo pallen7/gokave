@@ -11,7 +11,7 @@ import (
 
 // StoreManager - a manager of Kvstores
 type StoreManager struct {
-	stores map[string]*gklogfile.KvStore
+	stores map[string]*gklogfile.KvFile
 	config *Config
 }
 
@@ -46,7 +46,7 @@ func InitialiseStoreManager() (*StoreManager, error) {
 	config := new(Config)
 	json.Unmarshal(byteValue, config)
 
-	storeMap := make(map[string]*gklogfile.KvStore)
+	storeMap := make(map[string]*gklogfile.KvFile)
 
 	for _, store := range config.Stores {
 		for _, file := range store.Files {
@@ -79,6 +79,7 @@ func (storeManager *StoreManager) AddStore(storeName string) {
 
 	fmt.Printf("Creating store: %s\n", storeName)
 
+	// todo: Should the store manager handle the creation of the new file if it doesn't exist?
 	s, err := gklogfile.Open(fmt.Sprintf("c:\\devwork\\go\\gokave_data\\%s.gkv", storeName))
 	if err != nil {
 		log.Fatal(err)

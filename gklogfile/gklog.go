@@ -8,20 +8,24 @@ import (
 	"sync"
 )
 
-// KvStore is a kv store backed by an append only log file
-type KvStore struct {
-	file    *os.File
-	fileMap map[string]int64
-	// Replace the below with a goroutine representing a writer
-	mutex sync.Mutex
+// KvFile is an individual Key Value file backed by an append only log file
+type KvFile struct {
+	file           *os.File
+	fileWriteMutex sync.Mutex
+	fileMap        map[string]int64
+	fileMapMutex   sync.RWMutex
 }
 
 // Open - open the specified file
-func Open(fileName string) (*KvStore, error) {
+// Currently also creates the file if it doesn't pre-exist. Possibly pass the creation
+// up a level when we get to multiple files per store
+func Open(fileName string) (*KvFile, error) {
 
 	fmt.Printf("Opening: %s\n", fileName)
 
-	file, err := os.OpenFile(fileName, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0644)
+	// We want an append only file but still allow concurrent reads. Pass the respobnsibility for this the OS as per:
+	// https://stackoverflow.com/questions/37628873/golang-simultaneous-read-write-to-the-file-without-explicit-file-lock
+	file, err := os.OpenFile(fileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0644)
 	if err != nil {
 		return nil, err
 	}
@@ -31,7 +35,7 @@ func Open(fileName string) (*KvStore, error) {
 		return nil, err
 	}
 
-	kvFile := &KvStore{
+	kvFile := &KvFile{
 		file:    file,
 		fileMap: fileMap,
 	}
@@ -55,10 +59,11 @@ func Read() {
 
 // Write - writes a Key Value pair to the file
 // Going to make the file & map write a goroutine so we can queue up our writes
-// Simple example: https://play.golang.org/p/iOiH3ME7eVg
-// Should return number of bytes written (possibly?) and error
-func (store *KvStore) Write(value []byte, key string) {
 
+// Should return number of bytes written (possibly?) and error
+func (store *KvFile) Write(value []byte, key string) {
+
+	// Move these into the writeMetadata once we understand how to create custom errors
 	if len(value) > 2147483647 {
 		log.Fatal("Value too long")
 	}
@@ -72,40 +77,45 @@ func (store *KvStore) Write(value []byte, key string) {
 	writeKeyMetadata(&md, len(key))
 	writeValueMetadata(&md, len(value))
 
-	// ** Critical section
-	// todo - this will be replaced with a gorouting and a channel to form a writer queue
-	store.mutex.Lock()
-	fmt.Println("Entering critical section. Writing:", key)
-
-	// Should we be getting the file size on every write? For the moment find out the length of the file
-	// so we can create our kv map
-	fileStat, err := store.file.Stat()
-	if err != nil {
-		log.Fatal(err)
-	}
-
+	// Write to the buffer
 	writer := bufio.NewWriterSize(store.file, len(md)+md.keyLength()+md.valueLength())
 	writer.Write(md)
 	writer.WriteString(key)
 	writer.Write(value)
+
+	location, err := writeToFile(store.file, writer, &store.fileWriteMutex)
+	if err != nil {
+		log.Fatal()
+	}
+
+	// Note that it is dangerous to update a map that could also be being read
+	// https://stackoverflow.com/questions/36167200/how-safe-are-golang-maps-for-concurrent-read-write-operations
+	store.fileMapMutex.Lock()
+	store.fileMap[key] = location
+	store.fileMapMutex.Unlock()
+
+	fmt.Printf("%s written to %s\n", key, store.file.Name())
+}
+
+//
+// *** Internal functions
+//
+func writeToFile(file *os.File, writer *bufio.Writer, mutex *sync.Mutex) (location int64, err error) {
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	fileStat, err := file.Stat()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	if err = writer.Flush(); err != nil {
 		log.Fatal(err)
 	}
 
-	// // Write the bytes written and 'value' to the data file.
-	// // append is a variadic function
-	// // the elipses (...) effectively take every value independently from the valueToWrite slice (is my understanding)
-	// if _, err = store.file.Write(append(append(md, []byte(key)...), value...)); err != nil {
-	// 	log.Fatal(err)
-	// }
-
-	store.fileMap[key] = fileStat.Size()
-
-	store.mutex.Unlock()
-	fmt.Println("Exiting critical section")
+	return fileStat.Size(), nil
 }
 
-// --- Internal functions
 func initialiseFileMap(file *os.File) (map[string]int64, error) {
 
 	fileStat, err := file.Stat()
@@ -114,23 +124,23 @@ func initialiseFileMap(file *os.File) (map[string]int64, error) {
 	}
 
 	fileMap := make(map[string]int64)
+	fileSize := fileStat.Size()
 
-	for offset := int64(0); offset < fileStat.Size(); {
-		meta, err := readMetadata(file, offset)
+	for position := int64(0); position < fileSize; {
+		meta, err := readMetadata(file, position)
 		if err != nil {
 			return nil, err
 		}
 
 		key := make([]byte, meta.keyLength())
-		if _, err := file.ReadAt(key, offset+int64(len(meta))); err != nil {
+		if _, err := file.ReadAt(key, position+int64(len(meta))); err != nil {
 			return nil, err
 		}
 
-		fmt.Printf("\tKey: %s read at: %d\n", string(key), offset)
+		fileMap[string(key)] = position
+		position += int64(len(meta) + meta.keyLength() + meta.valueLength())
 
-		fileMap[string(key)] = offset
-
-		offset += int64(len(meta) + meta.keyLength() + meta.valueLength())
+		fmt.Printf("\tKey: %s read at: %d\n", string(key), position)
 	}
 
 	return make(map[string]int64), nil
@@ -152,12 +162,12 @@ func readMetadata(file *os.File, offset int64) (metadata, error) {
 	// note: Code below assumes version 1 - version added as a hook for future changes
 	// byte 0		version
 	// byte 1		keyLength
-	// byte 2-4		valueLength
+	// byte 2-5		valueLength
 
 	// The below only works for vsn 1. When/if we change the version we need to read the first byte
 	// and then read the metadata based on the version that was read in the first byte
 	md := make([]byte, 6)
-	if _, err := file.ReadAt(md[0:6], offset); err != nil {
+	if _, err := file.ReadAt(md, offset); err != nil {
 		log.Fatal(err)
 	}
 

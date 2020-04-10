@@ -25,8 +25,6 @@ func main() {
 
 	// MVP:
 	// 2) Add DELETE (tombstoning) from a store
-	// 4) Sort out the critical sections. Look at RWMutex. vs goroutines and channels etc
-	//         (or crashes if first read is non-existent)
 	// 5) Review the program layout, naming conventions, file handling etc
 	// 5b) add some more validation around what can be used as store names, keys, validate JSON values etc
 	// 6) Look at the best way to handle errors
