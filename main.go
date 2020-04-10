@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"go_play/gkstore"
+	"gokave/gkstore"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -60,8 +60,8 @@ func (rHandler requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	switch r.Method {
 	case "POST":
 		handleRequestPost(rHandler.storeManager, w, r)
-	// case "GET":
-	// 	handleRequestGet(rHandler.storeManager, w, r)
+	case "GET":
+		handleRequestGet(rHandler.storeManager, w, r)
 	default:
 		fmt.Println("Unrecognised HTTP request type")
 	}
@@ -107,29 +107,29 @@ func handleRequestPost(storeManager *gkstore.StoreManager, responseWriter http.R
 	storeManager.WriteToStore(dirs[1], value, id)
 }
 
-// func handleRequestGet(storeManager *gkstore.StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
+func handleRequestGet(storeManager *gkstore.StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
 
-// 	// Here we want a URL in the format /store/type/id - (case insensitive)
-// 	// We should wrap this up in a function
-// 	// rename id to resource?
-// 	dir, id := path.Split(strings.ToLower(httpRequest.URL.Path))
-// 	cleanDir := strings.TrimPrefix(strings.TrimSuffix(dir, "/"), "/")
-// 	dirs := strings.Split(cleanDir, "/")
+	// Here we want a URL in the format /store/type/id - (case insensitive)
+	// We should wrap this up in a function
+	// rename id to resource?
+	dir, id := path.Split(strings.ToLower(httpRequest.URL.Path))
+	cleanDir := strings.TrimPrefix(strings.TrimSuffix(dir, "/"), "/")
+	dirs := strings.Split(cleanDir, "/")
 
-// 	if len(dirs) != 2 {
-// 		http.NotFound(responseWriter, httpRequest)
-// 		return
-// 	}
-// 	// Why do we need the below? Can't remember the reason since the http.handle sets this up
-// 	if dirs[0] != "store" {
-// 		http.NotFound(responseWriter, httpRequest)
-// 		return
-// 	}
-// 	fmt.Printf("Get %s from store: %s\n", id, dirs[1])
-// 	bytes := storeManager.ReadFromStore(dirs[1], id)
-// 	responseWriter.WriteHeader(200)
-// 	responseWriter.Write(bytes)
-// }
+	if len(dirs) != 2 {
+		http.NotFound(responseWriter, httpRequest)
+		return
+	}
+	// Why do we need the below? Can't remember the reason since the http.handle sets this up
+	if dirs[0] != "store" {
+		http.NotFound(responseWriter, httpRequest)
+		return
+	}
+	fmt.Printf("Get %s from store: %s\n", id, dirs[1])
+	bytes := storeManager.ReadFromStore(dirs[1], id)
+	responseWriter.WriteHeader(200)
+	responseWriter.Write(bytes)
+}
 
 func handleAdminPost(storeManager *gkstore.StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
 	// Here we want a URL in the format /store/admin/resource - (case insensitive)

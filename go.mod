@@ -1,3 +1,3 @@
-module go_play
+module gokave
 
 go 1.13

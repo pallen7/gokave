@@ -3,7 +3,7 @@ package gkstore
 import (
 	"encoding/json"
 	"fmt"
-	"go_play/gklogfile"
+	"gokave/gklogfile"
 	"io/ioutil"
 	"log"
 	"os"
@@ -202,11 +202,12 @@ func (storeManager *StoreManager) AddStore(storeName string) {
 // 	fmt.Printf("Updated config: %v\n", updatedConfig.Stores)
 // }
 
-// // ReadFromStore - reads from a store
-// func (storeManager *StoreManager) ReadFromStore(storeName string, key string) []byte {
-// 	s := storeManager.stores[storeName]
-// 	return ReadData(s, key)
-// }
+// ReadFromStore - reads from a store
+func (storeManager *StoreManager) ReadFromStore(storeName string, key string) []byte {
+	s := storeManager.stores[storeName]
+	value, _ := s.Read(key)
+	return value
+}
 
 // WriteToStore - writes to a store
 func (storeManager *StoreManager) WriteToStore(storeName string, value []byte, key string) {

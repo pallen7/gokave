@@ -8,13 +8,19 @@ import (
 	"sync"
 )
 
-// KvFile is an individual Key Value file backed by an append only log file
+// KvFile is an individual Key Value file allowing append only operations
+// It contains a map pointing to the given position in a file for any given keys
+// todo: Need to remove all of the debug statements
 type KvFile struct {
 	file           *os.File
 	fileWriteMutex sync.Mutex
 	fileMap        map[string]int64
 	fileMapMutex   sync.RWMutex
 }
+
+const (
+	v1 = iota + 1
+)
 
 // Open - open the specified file
 // Currently also creates the file if it doesn't pre-exist. Possibly pass the creation
@@ -53,15 +59,40 @@ func Delete() {
 }
 
 // Read - the value for a given key
-func Read() {
+// todo:
+// - remove debug statement(s)
+// - sort error handling
+// - handle delete
+func (kvFile *KvFile) Read(key string) ([]byte, error) {
+	kvFile.fileMapMutex.RLock()
+	startLocation, keyFound := kvFile.fileMap[key]
+	kvFile.fileMapMutex.RUnlock()
 
+	if !keyFound {
+		fmt.Printf("Key not found: %s\n", key)
+		return make([]byte, 0), nil // todo: When reviewing errors we should create return a not_found error
+	}
+
+	md := newMetadata(v1)
+	if _, err := kvFile.file.ReadAt(md, startLocation); err != nil {
+		log.Fatal(err)
+	}
+
+	valuePosition := startLocation + int64(len(md)) + int64(md.keyLength())
+
+	value := make([]byte, md.valueLength())
+	if _, err := kvFile.file.ReadAt(value, valuePosition); err != nil {
+		log.Fatal(err)
+	}
+
+	// todo: remove debug statement
+	fmt.Println("Key", key, "Location", startLocation, "dataLength", md.valueLength(), "keyLength", md.keyLength())
+	return value, nil
 }
 
 // Write - writes a Key Value pair to the file
-// Going to make the file & map write a goroutine so we can queue up our writes
-
-// Should return number of bytes written (possibly?) and error
-func (store *KvFile) Write(value []byte, key string) {
+// Should return an error/nil
+func (kvFile *KvFile) Write(value []byte, key string) {
 
 	// Move these into the writeMetadata once we understand how to create custom errors
 	if len(value) > 2147483647 {
@@ -72,29 +103,28 @@ func (store *KvFile) Write(value []byte, key string) {
 		log.Fatal("Key too long")
 	}
 
-	// Create a v1 metadata
-	md := newMetadata(1)
+	md := newMetadata(v1)
 	writeKeyMetadata(&md, len(key))
 	writeValueMetadata(&md, len(value))
 
 	// Write to the buffer
-	writer := bufio.NewWriterSize(store.file, len(md)+md.keyLength()+md.valueLength())
+	writer := bufio.NewWriterSize(kvFile.file, len(md)+md.keyLength()+md.valueLength())
 	writer.Write(md)
 	writer.WriteString(key)
 	writer.Write(value)
 
-	location, err := writeToFile(store.file, writer, &store.fileWriteMutex)
+	location, err := writeToFile(kvFile.file, writer, &kvFile.fileWriteMutex)
 	if err != nil {
 		log.Fatal()
 	}
 
 	// Note that it is dangerous to update a map that could also be being read
 	// https://stackoverflow.com/questions/36167200/how-safe-are-golang-maps-for-concurrent-read-write-operations
-	store.fileMapMutex.Lock()
-	store.fileMap[key] = location
-	store.fileMapMutex.Unlock()
+	kvFile.fileMapMutex.Lock()
+	kvFile.fileMap[key] = location
+	kvFile.fileMapMutex.Unlock()
 
-	fmt.Printf("%s written to %s\n", key, store.file.Name())
+	fmt.Printf("%s written to %s\n", key, kvFile.file.Name())
 }
 
 //
@@ -143,26 +173,26 @@ func initialiseFileMap(file *os.File) (map[string]int64, error) {
 		fmt.Printf("\tKey: %s read at: %d\n", string(key), position)
 	}
 
-	return make(map[string]int64), nil
+	return fileMap, nil
 
 }
 
 /*
 Metadata functions
 All of the below assume version 1
+	// byte 0		version
+	// byte 1		keyLength
+	// byte 2-5		valueLength
 */
 type metadata []byte
 
 func newMetadata(version int) metadata {
-	// Assuming version 1
-	return make([]byte, 6)
+	md := make([]byte, 6) // Assuming version 1 - 6 bytes.
+	md[0] = byte(version)
+	return md
 }
 
 func readMetadata(file *os.File, offset int64) (metadata, error) {
-	// note: Code below assumes version 1 - version added as a hook for future changes
-	// byte 0		version
-	// byte 1		keyLength
-	// byte 2-5		valueLength
 
 	// The below only works for vsn 1. When/if we change the version we need to read the first byte
 	// and then read the metadata based on the version that was read in the first byte
