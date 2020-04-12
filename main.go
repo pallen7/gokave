@@ -24,22 +24,20 @@ type adminHandler struct {
 func main() {
 
 	// MVP:
-	// 2) Add DELETE (tombstoning) from a store
-	// 5) Review the program layout, naming conventions, file handling etc
-	// 5b) add some more validation around what can be used as store names, keys, validate JSON values etc
-	// 6) Look at the best way to handle errors
+	// 1) Add DELETE (tombstoning) from a store - use versioning
+	// 2) Update read to support the tombstoning
+	// 3) Look at the best way to handle errors and add this to gklog
+	// 4) Sit a gkstore on top of multiple gk files (create multiple when limit reached etc - purging blah)
+	// 5) Add  validation around what can be used as store names, keys, validate JSON values etc
 	// 7) Add readme and sort out the comments for all of the public values
 	// 8) Separate the API from the store & storemanager so they can be consumed directly
 	// 9) Add tests
 
 	// Bugs:
-	// - Reads the first value in the data file if you 'get' a non-existent key
 	// - After deleting a store for the 2nd time got a load of random bytes turn up at the beginning of data.json
 
 	// Future:
-	// 1) Add in multiple files per store
-	// 2) Add in the purging of old files
-	// 3) Replication to multiple nodes
+	// 1) Replication to multiple nodes
 
 	fmt.Println("Server started")
 	sm, _ := gkstore.InitialiseStoreManager()
@@ -56,12 +54,13 @@ func main() {
 func (rHandler requestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// I'm sure there must be a better way to handle this but:
-
 	switch r.Method {
 	case "POST":
 		handleRequestPost(rHandler.storeManager, w, r)
 	case "GET":
 		handleRequestGet(rHandler.storeManager, w, r)
+	case "DELETE":
+		handleRequestDelete(rHandler.storeManager, w, r)
 	default:
 		fmt.Println("Unrecognised HTTP request type")
 	}
@@ -129,6 +128,25 @@ func handleRequestGet(storeManager *gkstore.StoreManager, responseWriter http.Re
 	bytes := storeManager.ReadFromStore(dirs[1], id)
 	responseWriter.WriteHeader(200)
 	responseWriter.Write(bytes)
+}
+
+func handleRequestDelete(storeManager *gkstore.StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
+
+	dir, id := path.Split(strings.ToLower(httpRequest.URL.Path))
+	cleanDir := strings.TrimPrefix(strings.TrimSuffix(dir, "/"), "/")
+	dirs := strings.Split(cleanDir, "/")
+
+	if len(dirs) != 2 {
+		http.NotFound(responseWriter, httpRequest)
+		return
+	}
+	// Why do we need the below? Can't remember the reason since the http.handle sets this up
+	if dirs[0] != "store" {
+		http.NotFound(responseWriter, httpRequest)
+		return
+	}
+	fmt.Printf("Delete %s from store: %s\n", id, dirs[1])
+	storeManager.DeleteFromStore(dirs[1], id)
 }
 
 func handleAdminPost(storeManager *gkstore.StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {

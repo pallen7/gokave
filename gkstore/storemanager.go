@@ -202,6 +202,12 @@ func (storeManager *StoreManager) AddStore(storeName string) {
 // 	fmt.Printf("Updated config: %v\n", updatedConfig.Stores)
 // }
 
+// DeleteFromStore - deletes from a store
+func (storeManager *StoreManager) DeleteFromStore(storeName string, key string) {
+	s := storeManager.stores[storeName]
+	s.Delete(key)
+}
+
 // ReadFromStore - reads from a store
 func (storeManager *StoreManager) ReadFromStore(storeName string, key string) []byte {
 	s := storeManager.stores[storeName]

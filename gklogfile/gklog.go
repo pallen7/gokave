@@ -18,10 +18,6 @@ type KvFile struct {
 	fileMapMutex   sync.RWMutex
 }
 
-const (
-	v1 = iota + 1
-)
-
 // Open - open the specified file
 // Currently also creates the file if it doesn't pre-exist. Possibly pass the creation
 // up a level when we get to multiple files per store
@@ -54,15 +50,34 @@ func Close() {
 }
 
 // Delete - delete a value from the store
-func Delete() {
+func (kvFile *KvFile) Delete(key string) {
+	md := newMetadata(currentVsn)
+	writeKeyMetadata(&md, len(key))
+	writeValueMetadata(&md, 0)
+	writeEntryType(&md, keyRemoved)
 
+	// Write to the buffer
+	writer := bufio.NewWriterSize(kvFile.file, len(md)+md.keyLength()+md.valueLength())
+	writer.Write(md)
+	writer.WriteString(key)
+
+	_, err := writeToFile(kvFile.file, writer, &kvFile.fileWriteMutex)
+	if err != nil {
+		log.Fatal()
+	}
+
+	kvFile.fileMapMutex.Lock()
+	delete(kvFile.fileMap, key)
+	kvFile.fileMapMutex.Unlock()
+
+	fmt.Printf("%s removed from %s\n", key, kvFile.file.Name())
 }
 
 // Read - the value for a given key
 // todo:
 // - remove debug statement(s)
 // - sort error handling
-// - handle delete
+// - shares a lot of overlap with initialiseFileMap. Can we create some common functions?
 func (kvFile *KvFile) Read(key string) ([]byte, error) {
 	kvFile.fileMapMutex.RLock()
 	startLocation, keyFound := kvFile.fileMap[key]
@@ -73,11 +88,17 @@ func (kvFile *KvFile) Read(key string) ([]byte, error) {
 		return make([]byte, 0), nil // todo: When reviewing errors we should create return a not_found error
 	}
 
-	md := newMetadata(v1)
-	if _, err := kvFile.file.ReadAt(md, startLocation); err != nil {
-		log.Fatal(err)
+	md, err := readMetadata(kvFile.file, startLocation)
+	if err != nil {
+		return nil, err
 	}
 
+	// keyRemoved
+	if md.entryType() == keyRemoved {
+		return make([]byte, 0), nil
+	}
+
+	// keyAdded - return value (this is assumed, should we check the entry type is keyAdded?)
 	valuePosition := startLocation + int64(len(md)) + int64(md.keyLength())
 
 	value := make([]byte, md.valueLength())
@@ -103,9 +124,10 @@ func (kvFile *KvFile) Write(value []byte, key string) {
 		log.Fatal("Key too long")
 	}
 
-	md := newMetadata(v1)
+	md := newMetadata(currentVsn)
 	writeKeyMetadata(&md, len(key))
 	writeValueMetadata(&md, len(value))
+	writeEntryType(&md, keyAdded)
 
 	// Write to the buffer
 	writer := bufio.NewWriterSize(kvFile.file, len(md)+md.keyLength()+md.valueLength())
@@ -167,36 +189,62 @@ func initialiseFileMap(file *os.File) (map[string]int64, error) {
 			return nil, err
 		}
 
-		fileMap[string(key)] = position
+		switch meta.entryType() {
+		case keyAdded:
+			fileMap[string(key)] = position
+		case keyRemoved:
+			delete(fileMap, string(key))
+		default:
+			log.Fatal("Unrecognised entryType")
+		}
+
 		position += int64(len(meta) + meta.keyLength() + meta.valueLength())
 
 		fmt.Printf("\tKey: %s read at: %d\n", string(key), position)
 	}
 
 	return fileMap, nil
-
 }
 
 /*
-Metadata functions
-All of the below assume version 1
-	// byte 0		version
-	// byte 1		keyLength
-	// byte 2-5		valueLength
+Metadata functions: Possibly remove versioned metadata once the layout is stable
+
+Layouts:
+	version 1
+		// byte 0		version
+		// byte 1		keyLength
+		// byte 2-5		valueLength
+	version 2
+		// byte 0		version
+		// byte 1		keyLength
+		// byte 2-5		valueLength
+		// byte 6		recordType
 */
 type metadata []byte
 
-func newMetadata(version int) metadata {
-	md := make([]byte, 6) // Assuming version 1 - 6 bytes.
-	md[0] = byte(version)
-	return md
-}
+// todo: read and apply some of the ideas here: https://splice.com/blog/iota-elegant-constants-golang/
+// type version int
+// type entryType
+
+const (
+	v1 = iota + 1
+	v2
+)
+const currentVsn = v2
+
+const (
+	keyAdded = iota
+	keyRemoved
+)
 
 func readMetadata(file *os.File, offset int64) (metadata, error) {
 
-	// The below only works for vsn 1. When/if we change the version we need to read the first byte
-	// and then read the metadata based on the version that was read in the first byte
-	md := make([]byte, 6)
+	vsn := make([]byte, 1)
+	if _, err := file.ReadAt(vsn, offset); err != nil {
+		log.Fatal(err)
+	}
+
+	md := newMetadata(int(vsn[0]))
 	if _, err := file.ReadAt(md, offset); err != nil {
 		log.Fatal(err)
 	}
@@ -204,26 +252,86 @@ func readMetadata(file *os.File, offset int64) (metadata, error) {
 	return md, nil
 }
 
+func newMetadata(version int) metadata {
+	var md []byte
+	switch version {
+	case v1:
+		md = make([]byte, 6)
+	case v2:
+		md = make([]byte, 7)
+	default:
+		log.Fatal("Unrecognised metadata version")
+	}
+	md[0] = byte(version)
+	return md
+}
+
 func (md metadata) keyLength() int {
-	return int(md[1])
+	var keyLength int
+	switch int(md[0]) {
+	case v1, v2:
+		keyLength = int(md[1])
+	default:
+		log.Fatal("Unrecognised metadata version")
+	}
+	return keyLength
 }
 
 func (md metadata) valueLength() int {
 	// https://play.golang.org/p/xXzANmB6PJU bitwise operators
-	return int(md[2]) +
-		int(md[3])<<8 +
-		int(md[4])<<16 +
-		int(md[5])<<24
+	var valueLength int
+	switch int(md[0]) {
+	case v1, v2:
+		valueLength = int(md[2]) +
+			int(md[3])<<8 +
+			int(md[4])<<16 +
+			int(md[5])<<24
+	default:
+		log.Fatal("Unrecognised metadata version")
+	}
+	return valueLength
+}
+
+func (md metadata) entryType() int {
+	var entryType int
+	switch int(md[0]) {
+	case v1:
+		entryType = keyAdded
+	case v2:
+		entryType = int(md[6])
+	default:
+		log.Fatal("Unrecognised metadata version")
+	}
+	return entryType
 }
 
 func writeKeyMetadata(md *metadata, length int) {
-	(*md)[1] = byte(length)
+	switch int((*md)[0]) {
+	case v1, v2:
+		(*md)[1] = byte(length)
+	default:
+		log.Fatal("Unrecognised metadata version")
+	}
 }
 
 func writeValueMetadata(md *metadata, length int) {
 	// https://play.golang.org/p/xXzANmB6PJU bitwise operators
-	(*md)[2] = byte(length)
-	(*md)[3] = byte(length >> 8)
-	(*md)[4] = byte(length >> 16)
-	(*md)[5] = byte(length >> 24)
+	switch int((*md)[0]) {
+	case v1, v2:
+		(*md)[2] = byte(length)
+		(*md)[3] = byte(length >> 8)
+		(*md)[4] = byte(length >> 16)
+		(*md)[5] = byte(length >> 24)
+	default:
+		log.Fatal("Unrecognised metadata version")
+	}
+}
+
+func writeEntryType(md *metadata, entryType int) {
+	switch int((*md)[0]) {
+	case v2:
+		(*md)[6] = byte(entryType)
+	default:
+		log.Fatal("Unrecognised metadata version")
+	}
 }
