@@ -211,12 +211,14 @@ func (storeManager *StoreManager) DeleteFromStore(storeName string, key string) 
 // ReadFromStore - reads from a store
 func (storeManager *StoreManager) ReadFromStore(storeName string, key string) []byte {
 	s := storeManager.stores[storeName]
-	value, _ := s.Read(key)
+	// Todo - when processing multiple files we need read the flag (2nd param) to decide if blank value is deleted or not exists
+	// Not sure if returning 3 values is bad form...?
+	value, _, _ := s.Read(key)
 	return value
 }
 
 // WriteToStore - writes to a store
-func (storeManager *StoreManager) WriteToStore(storeName string, value []byte, key string) {
+func (storeManager *StoreManager) WriteToStore(storeName string, value []byte, key string) error {
 	s := storeManager.stores[storeName]
-	s.Write(value, key)
+	return s.Write(key, value)
 }

@@ -103,7 +103,10 @@ func handleRequestPost(storeManager *gkstore.StoreManager, responseWriter http.R
 	}
 
 	fmt.Printf("Post: %s Store: %s Id: %s\n", value, dirs[1], id)
-	storeManager.WriteToStore(dirs[1], value, id)
+	if err := storeManager.WriteToStore(dirs[1], value, id); err != nil {
+		http.Error(responseWriter, err.Error(), 500)
+		fmt.Println(err)
+	}
 }
 
 func handleRequestGet(storeManager *gkstore.StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
