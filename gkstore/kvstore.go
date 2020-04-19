@@ -45,13 +45,10 @@ func Open(storeName string) (store *KvStore, err error) {
 			continue
 		}
 
-		if fileParts[1] != "gkv" {
-			fmt.Printf("Bad filename: %s", file.Name())
-			continue
-		}
+		// Need to validate the filename is a numeric in a decent unix nanosecond time range
 
-		fmt.Printf("KvStore.Open(%s)", file.Name())
-		f, err := gklogfile.Open(file.Name())
+		fmt.Printf("KvStore.Open(%s)", fmt.Sprintf("c:\\devwork\\go\\gokave_data\\%s\\%s\n", storeName, file.Name()))
+		f, err := gklogfile.Open(fmt.Sprintf("c:\\devwork\\go\\gokave_data\\%s\\%s", storeName, file.Name()))
 		return &KvStore{file: f}, err
 	}
 
