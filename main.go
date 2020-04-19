@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"gokave/gkstore"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -14,23 +13,28 @@ import (
 // a) is this correct?
 // b) can/should we package the below up as controllers?
 type requestHandler struct {
-	storeManager *gkstore.StoreManager
+	storeManager *StoreManager
 }
 
 type adminHandler struct {
-	storeManager *gkstore.StoreManager
+	storeManager *StoreManager
 }
 
 func main() {
 
 	// MVP:
-	// 1) Add DELETE (tombstoning) from a store - use versioning
-	// 2) Update read to support the tombstoning
-	// 3) Look at the best way to handle errors and add this to gklog
+	// 1) We want a gkstore package that contains the following:
+	// - CreateStore()
+	// - OpenStore()
+	// - DeleteStore() -> ? If each store lives at the folder level can the user just delete the folder
+	// - Write()
+	// - Read()
+	// - Delete()
+
+	// 2) Shift everything else out of the package (reclassify API & storemanager as test harness?)
 	// 4) Sit a gkstore on top of multiple gk files (create multiple when limit reached etc - purging blah)
 	// 5) Add  validation around what can be used as store names, keys, validate JSON values etc
 	// 7) Add readme and sort out the comments for all of the public values
-	// 8) Separate the API from the store & storemanager so they can be consumed directly
 	// 9) Add tests
 
 	// Bugs:
@@ -40,7 +44,7 @@ func main() {
 	// 1) Replication to multiple nodes
 
 	fmt.Println("Server started")
-	sm, _ := gkstore.InitialiseStoreManager()
+	sm, _ := InitialiseStoreManager()
 	r := &requestHandler{storeManager: sm}
 	a := &adminHandler{storeManager: sm}
 
@@ -81,7 +85,7 @@ func (aHandler adminHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func handleRequestPost(storeManager *gkstore.StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
+func handleRequestPost(storeManager *StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
 	// Here we want a URL in the format /store/type/id - (case insensitive)
 	// We should wrap this up in a function
 	dir, id := path.Split(strings.ToLower(httpRequest.URL.Path))
@@ -109,7 +113,7 @@ func handleRequestPost(storeManager *gkstore.StoreManager, responseWriter http.R
 	}
 }
 
-func handleRequestGet(storeManager *gkstore.StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
+func handleRequestGet(storeManager *StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
 
 	// Here we want a URL in the format /store/type/id - (case insensitive)
 	// We should wrap this up in a function
@@ -133,7 +137,7 @@ func handleRequestGet(storeManager *gkstore.StoreManager, responseWriter http.Re
 	responseWriter.Write(bytes)
 }
 
-func handleRequestDelete(storeManager *gkstore.StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
+func handleRequestDelete(storeManager *StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
 
 	dir, id := path.Split(strings.ToLower(httpRequest.URL.Path))
 	cleanDir := strings.TrimPrefix(strings.TrimSuffix(dir, "/"), "/")
@@ -152,7 +156,7 @@ func handleRequestDelete(storeManager *gkstore.StoreManager, responseWriter http
 	storeManager.DeleteFromStore(dirs[1], id)
 }
 
-func handleAdminPost(storeManager *gkstore.StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
+func handleAdminPost(storeManager *StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
 	// Here we want a URL in the format /store/admin/resource - (case insensitive)
 	// We should wrap this up in a function
 	// This is a bit turd - need to clean up all of the routing
@@ -169,7 +173,7 @@ func handleAdminPost(storeManager *gkstore.StoreManager, responseWriter http.Res
 	storeManager.AddStore(id)
 }
 
-// func handleAdminDelete(storeManager *gkstore.StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
+// func handleAdminDelete(storeManager StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
 // 	dir, id := path.Split(httpRequest.URL.Path)
 // 	cleanDir := strings.TrimPrefix(strings.TrimSuffix(dir, "/"), "/")
 // 	dirs := strings.Split(cleanDir, "/")
@@ -183,7 +187,7 @@ func handleAdminPost(storeManager *gkstore.StoreManager, responseWriter http.Res
 // 	storeManager.RemoveStore(id)
 // }
 
-// func handleAdminGet(storeManager *gkstore.StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
+// func handleAdminGet(storeManager StoreManager, responseWriter http.ResponseWriter, httpRequest *http.Request) {
 // 	dir, id := path.Split(httpRequest.URL.Path)
 // 	cleanDir := strings.TrimPrefix(strings.TrimSuffix(dir, "/"), "/")
 // 	dirs := strings.Split(cleanDir, "/")

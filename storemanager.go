@@ -1,9 +1,9 @@
-package gkstore
+package main
 
 import (
 	"encoding/json"
 	"fmt"
-	"gokave/gklogfile"
+	"gokave/gkstore"
 	"io/ioutil"
 	"log"
 	"os"
@@ -11,14 +11,13 @@ import (
 
 // StoreManager - a manager of Kvstores
 type StoreManager struct {
-	stores map[string]*gklogfile.KvFile
+	stores map[string]*gkstore.KvStore
 	config *Config
 }
 
 // StoreConfig - the Config per store
 type StoreConfig struct {
-	Name  string
-	Files []string
+	Name string
 }
 
 // Config - the store config
@@ -46,18 +45,27 @@ func InitialiseStoreManager() (*StoreManager, error) {
 	config := new(Config)
 	json.Unmarshal(byteValue, config)
 
-	storeMap := make(map[string]*gklogfile.KvFile)
+	storeMap := make(map[string]*gkstore.KvStore)
 
 	for _, store := range config.Stores {
-		for _, file := range store.Files {
-			fmt.Println("Initialising:", store.Name, "with file:", file)
-			s, err := gklogfile.Open(file)
-			// todo: decide how we want to handle a single store failure
-			if err != nil {
-				return nil, err
-			}
-			storeMap[store.Name] = s
+		// Each store will now live in a directory
+		fmt.Println("Initialising:", store.Name)
+		// todo: read the 'core' data directory from somewhere. Not sure is the dir config should be read a level down
+		s, err := gkstore.Open(store.Name)
+		// todo: decide how we want to handle a single store failure
+		if err != nil {
+			return nil, err
 		}
+		storeMap[store.Name] = s
+		// for _, file := range store.Files {
+		// 	fmt.Println("Initialising:", store.Name, "with file:", file)
+		// 	s, err := gkstore.Open(file)
+		// 	// todo: decide how we want to handle a single store failure
+		// 	if err != nil {
+		// 		return nil, err
+		// 	}
+		// 	storeMap[store.Name] = s
+		// }
 	}
 
 	return &StoreManager{
@@ -68,6 +76,7 @@ func InitialiseStoreManager() (*StoreManager, error) {
 
 // AddStore - add a new store
 func (storeManager *StoreManager) AddStore(storeName string) {
+	// TODO: Fix this since we've moved to directory based stores
 	// 1) Validate that the store doesn't exist (just check map doesn't exist or look for file(s)?)
 	// 2) Create an in-memory version of the store
 	// 3) Update the stores file
@@ -80,15 +89,15 @@ func (storeManager *StoreManager) AddStore(storeName string) {
 	fmt.Printf("Creating store: %s\n", storeName)
 
 	// todo: Should the store manager handle the creation of the new file if it doesn't exist?
-	s, err := gklogfile.Open(fmt.Sprintf("c:\\devwork\\go\\gokave_data\\%s.gkv", storeName))
+	s, err := gkstore.Open(fmt.Sprintf("c:\\devwork\\go\\gokave_data\\%s.gkv", storeName))
 	if err != nil {
 		log.Fatal(err)
 	}
 	storeManager.stores[storeName] = s
 
 	newStoreConfig := StoreConfig{
-		Name:  storeName,
-		Files: []string{fmt.Sprintf("c:\\devwork\\go\\gokave_data\\%s.gkv", storeName)},
+		Name: storeName,
+		//Files: []string{fmt.Sprintf("c:\\devwork\\go\\gokave_data\\%s.gkv", storeName)},
 	}
 	storeManager.config.Stores = append(storeManager.config.Stores, newStoreConfig)
 

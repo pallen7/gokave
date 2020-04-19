@@ -37,6 +37,9 @@ var ErrUnrecognisedMetadataVsn = errors.New("Unrecognised metadata version")
 // ErrUnrecognisedLogType means an invalid log type was encountered
 var ErrUnrecognisedLogType = errors.New("Unrecognised log entry type")
 
+// ErrChecksumFailre means the key/value pair was not the same as expected
+var ErrChecksumFailure = errors.New("Unrecognised log entry type")
+
 const (
 	// KeyWritten means the key has been written to the file / is present
 	KeyWritten = iota
