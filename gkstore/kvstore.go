@@ -4,68 +4,109 @@ import (
 	"fmt"
 	"gokave/gklogfile"
 	"io/ioutil"
+	"log"
 	"strings"
+	"sync"
+	"time"
 )
-
-// Store todos:
-// Should we hold the data at a folder level?
-// Do we base the files (read vs write) based on config or filenames? - could use: time.Now().UTC().UnixNano()
 
 // KvStore manages a set of KV files comprising a Store
 type KvStore struct {
-	file *gklogfile.KvFile
+	storeName string
+	files     []*gklogfile.KvFile
+	// Whenever we are performing an operation againstthe current file then we need to create a read lock. We're fine
+	// For these to all happen simultaneously as any concurrency issues at the file write level will be handled by the
+	// kvfile. If we are going to change the current file we need a writelock
+	currentFileMutex sync.RWMutex
 }
 
 // Open - temporary pass through
 func Open(storeName string) (store *KvStore, err error) {
-	//gkstore.Open(fmt.Sprintf("c:\\devwork\\go\\gokave_data\\%s.gkv", storeName))
+	// Todo list:
+	// If we don't find the directory (i.e. this is likely a new store() should we fail and require an initialisation or initialise here?
+	// If we don't find any files.. Same question as above
+	// check if store.files != nil -> should be when we call open or it indicates that we have already opened the store
+	// When we open a data store can we take a lock on the directory (or all of the files?)
 
-	// Move the data dir into config
 	// ReadDir returns files sorted by filename
-	files, err := ioutil.ReadDir(fmt.Sprintf("c:\\devwork\\go\\gokave_data\\%s", storeName))
+	fileInfos, err := ioutil.ReadDir(fmt.Sprintf("c:\\devwork\\go\\gokave_data\\%s", storeName))
 	if err != nil {
 		return
 	}
 
-	// Count the amount of files and create a slice of files to live in the store
-	// The last one that we read is going to be the latest file as we automatically sort by filename
+	store = &KvStore{storeName: storeName}
 
-	for _, file := range files {
-		fileParts := strings.Split(file.Name(), ".")
+	for _, fileInfo := range fileInfos {
+		fileParts := strings.Split(fileInfo.Name(), ".")
 
 		// Validate
 		if len(fileParts) != 2 {
 			// Need to add some kind of logging mechanism to log a warning/info
-			fmt.Printf("Bad filename: %s", file.Name())
+			fmt.Printf("Bad filename: %s", fileInfo.Name())
 			continue
 		}
 
 		if fileParts[1] != "gkv" {
-			fmt.Printf("Bad filename: %s", file.Name())
+			fmt.Printf("Bad filename: %s", fileInfo.Name())
 			continue
 		}
 
 		// Need to validate the filename is a numeric in a decent unix nanosecond time range
+		fmt.Printf("KvStore.Open(%s)\n", fmt.Sprintf("c:\\devwork\\go\\gokave_data\\%s\\%s\n", storeName, fileInfo.Name()))
 
-		fmt.Printf("KvStore.Open(%s)", fmt.Sprintf("c:\\devwork\\go\\gokave_data\\%s\\%s\n", storeName, file.Name()))
-		f, err := gklogfile.Open(fmt.Sprintf("c:\\devwork\\go\\gokave_data\\%s\\%s", storeName, file.Name()))
-		return &KvStore{file: f}, err
+		f, err := gklogfile.Open(fmt.Sprintf("c:\\devwork\\go\\gokave_data\\%s\\%s", storeName, fileInfo.Name()))
+		// Not sure that we should be bailing out here.. Maybe report a corruption error or try to fix? - work out later
+		if err != nil {
+			return store, err
+		}
+
+		// Note: append works on nil slices (which store should be when first passed in to open)
+		store.files = append(store.files, f)
 	}
-
 	return
 }
 
 // Delete - temporary pass through
 func (kvStore *KvStore) Delete(key string) (err error) {
-	return kvStore.file.Delete(key)
+	if len(kvStore.files) <= 0 {
+		log.Fatal("No files")
+	}
+	count := len(kvStore.files)
+	return kvStore.files[count-1].Delete(key)
 }
 
 // Read - temporary pass through
+// todo: we need to take notice of the flag that is returned to differentiate between not found and deleted
 func (kvStore *KvStore) Read(key string) (value []byte, flag int, err error) {
-	return kvStore.file.Read(key)
+	// We need something more elegant than this
+	if len(kvStore.files) <= 0 {
+		log.Fatal("No files")
+	}
+	count := len(kvStore.files)
+	return kvStore.files[count-1].Read(key)
 }
 
 // Write - temporary pass through
 func (kvStore *KvStore) Write(key string, value []byte) (err error) {
-	return kvStore.file.Write(key, value)
+	// So here we want to check the size of the file and if it's > max size we should create
+	// a new one
+	// The consideration that we have to think about is that the latest file could already be in the process
+	// of being written to. Could a RWMutex help us here..? As long as we haven't hit a crucial file size we
+	// we can allow as many processes as are needed
+	//
+	count := len(kvStore.files)
+	err = kvStore.files[count-1].Write(key, value)
+	size, _ := kvStore.files[count-1].Size()
+	// Just use 100 for the moment
+	if size > 100 {
+		newFile, err2 := gklogfile.Open(fmt.Sprintf("c:\\devwork\\go\\gokave_data\\%s\\%d.gkv", kvStore.storeName, time.Now().UTC().UnixNano()))
+		if err != nil {
+			return err2
+		}
+		// This needs to be in a write mutex as we're updating the storemap
+		kvStore.files = append(kvStore.files, newFile)
+	}
+	fmt.Printf("File size: %d\n", size)
+	return
+
 }

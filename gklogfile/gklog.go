@@ -131,13 +131,22 @@ func (kvFile *KvFile) Read(key string) (value []byte, flag int, err error) {
 	}
 
 	if flag = metadataEntryType(md); flag == KeyDeleted {
-		return
+		return nil, KeyDeleted, err
 	}
 
 	valueOffset := offset + int64(len(md)+metdataKeyLength(md))
 	value = make([]byte, metadataValueLength(md))
 	_, err = kvFile.file.ReadAt(value, valueOffset)
 	return
+}
+
+// Size in bytes of the underlying file
+func (kvFile *KvFile) Size() (size int64, err error) {
+	fs, err := kvFile.file.Stat()
+	if err != nil {
+		return
+	}
+	return fs.Size(), err
 }
 
 // Write - writes a Key Value pair to the file
