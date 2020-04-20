@@ -68,8 +68,22 @@ func (kvStore *KvStore) Delete(key string) (err error) {
 	if len(kvStore.files) <= 0 {
 		log.Fatal("No files")
 	}
+
+	// See Write - lots of work to be done here
 	count := len(kvStore.files)
-	return kvStore.files[count-1].Delete(key)
+	err = kvStore.files[count-1].Delete(key)
+	size, _ := kvStore.files[count-1].Size()
+	// Just use 100 for the moment
+	if size > 100 {
+		newFile, err2 := gklogfile.Open(fmt.Sprintf("c:\\devwork\\go\\gokave_data\\%s\\%d.gkv", kvStore.storeName, time.Now().UTC().UnixNano()))
+		if err != nil {
+			return err2
+		}
+		// This needs to be in a write mutex when we update the current file. All operations apart from this are 'read'
+		kvStore.files = append(kvStore.files, newFile)
+	}
+	fmt.Printf("File size: %d\n", size)
+	return
 }
 
 // Read - temporary pass through
