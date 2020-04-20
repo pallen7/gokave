@@ -33,7 +33,7 @@ func main() {
 
 	// 2) Shift everything else out of the package (reclassify API & storemanager as test harness?)
 	// 4) Sit a gkstore on top of multiple gk files (create multiple when limit reached etc - purging blah)
-	// 5) Add  validation around what can be used as store names, keys, validate JSON values etc
+	// 5) Add  validation around what can be used as store names, keys, validate JSON values etc?? Actually probably don't
 	// 7) Add readme and sort out the comments for all of the public values
 	// 9) Add tests
 

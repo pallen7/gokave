@@ -12,12 +12,9 @@ import (
 
 // KvStore manages a set of KV files comprising a Store
 type KvStore struct {
-	storeName string
-	files     []*gklogfile.KvFile
-	// Whenever we are performing an operation againstthe current file then we need to create a read lock. We're fine
-	// For these to all happen simultaneously as any concurrency issues at the file write level will be handled by the
-	// kvfile. If we are going to change the current file we need a writelock
-	currentFileMutex sync.RWMutex
+	storeName    string
+	files        []*gklogfile.KvFile
+	newFileMutex sync.RWMutex // used as an exclusive lock as we only want to add a new file when the current file isn't being written to
 }
 
 // Open - temporary pass through
@@ -82,8 +79,14 @@ func (kvStore *KvStore) Read(key string) (value []byte, flag int, err error) {
 	if len(kvStore.files) <= 0 {
 		log.Fatal("No files")
 	}
-	count := len(kvStore.files)
-	return kvStore.files[count-1].Read(key)
+	// Need some locking around here when we introduce file purging
+	for i := len(kvStore.files) - 1; i >= 0; i-- {
+		value, flag, err = kvStore.files[i].Read(key)
+		if flag == gklogfile.KeyDeleted || flag == gklogfile.KeyWritten {
+			return
+		}
+	}
+	return
 }
 
 // Write - temporary pass through
@@ -103,7 +106,7 @@ func (kvStore *KvStore) Write(key string, value []byte) (err error) {
 		if err != nil {
 			return err2
 		}
-		// This needs to be in a write mutex as we're updating the storemap
+		// This needs to be in a write mutex when we update the current file. All operations apart from this are 'read'
 		kvStore.files = append(kvStore.files, newFile)
 	}
 	fmt.Printf("File size: %d\n", size)
